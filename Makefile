@@ -74,6 +74,18 @@ eval-promptfoo:
 	@echo "Make sure agent is running at http://localhost:5002"
 	@cd config/agent/evals/promptfoo && npx promptfoo@latest eval
 
+mock-mcp:
+	@echo "Starting Mock MCP Server..."
+	@./scripts/start-mock-mcp.sh
+
+local-with-mock:
+	@echo "This will start both Mock MCP Server and Agent"
+	@echo "Run in separate terminals:"
+	@echo "  Terminal 1: make mock-mcp"
+	@echo "  Terminal 2: make local"
+	@echo ""
+	@echo "Or use docker-compose to run everything together"
+
 local:
 	@echo "Setting up local environment..."
 	@test -f .env || (echo "Creating .env from .env.example..." && cp .env.example .env)

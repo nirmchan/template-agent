@@ -19,7 +19,10 @@ cp .env.example .env          # edit with your config
 uv run python -m deep_agent.src.main
 ```
 
-The [template-mcp-server](https://github.com/redhat-data-and-ai/template-mcp-server) must be running before starting the agent.
+**MCP Server Required:** The agent needs an MCP server for BMI calculations and email features.
+
+- **For Testing:** Use the included Mock MCP Server: `make mock-mcp` (see [SETUP.md](./SETUP.md))
+- **For Production:** Clone and run [template-mcp-server](https://github.com/redhat-data-and-ai/template-mcp-server)
 
 ## API
 

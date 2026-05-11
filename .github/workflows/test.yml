@@ -72,7 +72,6 @@ jobs:
     - name: Run skills evals
       env:
         GOOGLE_APPLICATION_CREDENTIALS_CONTENT: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_CONTENT }}
-        GOOGLE_GENAI_API_KEY: ${{ secrets.GOOGLE_GENAI_API_KEY }}
       run: |
         source .venv/bin/activate && pytest tests/skills -m skills -v
 
@@ -127,10 +126,22 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
 
+    - name: Install jq
+      run: sudo apt-get update && sudo apt-get install -y jq
+
+    - name: Start Mock MCP Server
+      run: |
+        source .venv/bin/activate
+        python tests/mocks/mock_mcp_server.py > mock-mcp.log 2>&1 &
+        echo $! > mock-mcp.pid
+        sleep 3
+        # Verify mock MCP server is running
+        curl -f http://localhost:5001/health || (echo "Mock MCP server failed to start" && cat mock-mcp.log && exit 1)
+        echo "Mock MCP server started successfully"
+
     - name: Start agent server
       env:
         GOOGLE_APPLICATION_CREDENTIALS_CONTENT: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_CONTENT }}
-        GOOGLE_GENAI_API_KEY: ${{ secrets.GOOGLE_GENAI_API_KEY }}
         POSTGRES_USER: pgvector
         POSTGRES_PASSWORD: pgvector
         POSTGRES_DB: pgvector
@@ -138,15 +149,28 @@ jobs:
         POSTGRES_PORT: 5432
         AGENT_HOST: 0.0.0.0
         AGENT_PORT: 5002
+        PYTHON_LOG_LEVEL: INFO
       run: |
         source .venv/bin/activate
-        python -m deep_agent.src.main &
+        python -m deep_agent.src.main > agent.log 2>&1 &
         echo $! > agent.pid
-        sleep 10  # Wait for agent to start
+        echo "Agent PID: $(cat agent.pid)"
 
-    - name: Health check
+    - name: Wait for agent to be ready
       run: |
-        curl -f http://localhost:5002/health || exit 1
+        echo "Waiting for agent to start..."
+        for i in {1..30}; do
+          if curl -f http://localhost:5002/health 2>/dev/null; then
+            echo "✓ Agent is ready after ${i} seconds"
+            exit 0
+          fi
+          echo "Waiting... ($i/30)"
+          sleep 1
+        done
+        echo "✗ Agent failed to start within 30 seconds"
+        echo "=== Agent logs ==="
+        cat agent.log
+        exit 1
 
     - name: Run Promptfoo evals
       env:
@@ -155,11 +179,27 @@ jobs:
       run: |
         npx promptfoo@latest eval --output ../../../promptfoo-results.json
 
+    - name: Upload agent logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: agent-logs
+        path: agent.log
+
     - name: Stop agent server
       if: always()
       run: |
         if [ -f agent.pid ]; then
           kill $(cat agent.pid) || true
+          rm agent.pid
+        fi
+
+    - name: Stop Mock MCP Server
+      if: always()
+      run: |
+        if [ -f mock-mcp.pid ]; then
+          kill $(cat mock-mcp.pid) || true
+          rm mock-mcp.pid
         fi
 
     - name: Upload Promptfoo results
@@ -168,3 +208,4 @@ jobs:
       with:
         name: promptfoo-results
         path: promptfoo-results.json
+        if-no-files-found: warn
