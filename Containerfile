@@ -25,7 +25,9 @@ USER default
 # --------------------------------------------------------------------------------------------------
 
 COPY deep_agent /app/deep_agent
+COPY aegra /app/aegra
 COPY config /app/config
+COPY langgraph.json /app/langgraph.json
 
 # --------------------------------------------------------------------------------------------------
 # Set PYTHONPATH to include /app

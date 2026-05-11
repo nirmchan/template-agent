@@ -190,3 +190,9 @@ bandit-report.json
 safety-report.json
 .safety-project.ini
 TASKS.md
+roadmap.md
+
+# Aegra / LangGraph Platform
+deep-agents-ui/
+.langgraph/
+langgraph-api-data/

@@ -1,4 +1,4 @@
-.PHONY: local dev test clean deploy undeploy
+.PHONY: local dev test clean deploy undeploy aegra-dev aegra-up aegra-build aegra-clone-ui
 
 # OpenShift namespace (can be overridden: make deploy openshift NAMESPACE=my-project)
 NAMESPACE ?= $(shell oc project -q 2>/dev/null)
@@ -97,6 +97,43 @@ local:
 container:
 	export PODMAN_COMPOSE_SILENT=true
 	podman-compose --no-ansi up --build --force-recreate --remove-orphans  --timeout=60
+
+# ---------------------------------------------------------------------------
+# Aegra / LangGraph Platform targets
+# ---------------------------------------------------------------------------
+
+aegra-clone-ui:
+	@if [ ! -d "deep-agents-ui" ]; then \
+		echo "Cloning deep-agents-ui..."; \
+		git clone https://github.com/langchain-ai/deep-agents-ui.git; \
+	else \
+		echo "deep-agents-ui/ already exists, pulling latest..."; \
+		cd deep-agents-ui && git pull; \
+	fi
+
+aegra-dev:
+	@echo "Starting LangGraph dev server (no Docker)..."
+	@echo "Agent API: http://127.0.0.1:2024"
+	@echo "Studio:    https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024"
+	@echo ""
+	@echo "In deep-agents-ui, set:"
+	@echo "  Deployment URL: http://127.0.0.1:2024"
+	@echo "  Assistant ID:   agent"
+	@echo ""
+	@. .venv/bin/activate && langgraph dev --no-browser
+
+aegra-up:
+	@echo "Starting LangGraph server in Docker..."
+	@echo "Make sure Docker is running."
+	langgraph up -d compose.aegra.yaml --port 2024 --wait
+
+aegra-build:
+	@echo "Building LangGraph Docker image..."
+	langgraph build -t template-agent-aegra
+
+aegra-ui: aegra-clone-ui
+	@echo "Starting deep-agents-ui on http://localhost:3000..."
+	cd deep-agents-ui && yarn install && yarn dev
 
 # Deployment targets
 deploy:

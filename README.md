@@ -144,13 +144,69 @@ Test results saved to `tests/workspaces/{agent}-workspace/eval-{id}/`:
 
 ## Deployment
 
+### Custom FastAPI Server (default)
+
 ```bash
 podman-compose up -d --build
 ```
 
 For production: configure SSL certs (`AGENT_SSL_KEYFILE`, `AGENT_SSL_CERTFILE`), use managed PostgreSQL, and enable Langfuse tracing.
 
+### Aegra / LangGraph Platform (with deep-agents-ui)
+
+Serve the agent via the standard [LangGraph Platform](https://docs.langchain.com/langsmith/cli) API.
+Compatible with [deep-agents-ui](https://github.com/langchain-ai/deep-agents-ui).
+
+**Option A — Local dev (no Docker):**
+
+```bash
+# Terminal 1: Start the mock MCP server
+make mock-mcp
+
+# Terminal 2: Start LangGraph dev server
+pip install "langgraph-cli[inmem]"
+make aegra-dev
+
+# Terminal 3: Start the UI
+make aegra-clone-ui
+make aegra-ui
+```
+
+Open http://localhost:3000, set **Deployment URL** = `http://127.0.0.1:2024`, **Assistant ID** = `agent`.
+
+**Option B — Docker Compose:**
+
+```bash
+# Clone the UI
+make aegra-clone-ui
+
+# Start everything via LangGraph CLI
+langgraph up -d compose.aegra.yaml --port 2024 --wait
+```
+
+**Option C — Build a standalone Docker image:**
+
+```bash
+make aegra-build
+docker run -p 2024:8123 --env-file .env template-agent-aegra
+```
+
+#### Aegra directory structure
+
+```
+aegra/
+├── __init__.py       # Package metadata
+├── graph.py          # Graph builder + exported agent (langgraph.json entry)
+├── state.py          # Extended state schema and health types
+├── converters.py     # State conversion utilities
+└── nodes.py          # Error-handling node decorators
+langgraph.json        # LangGraph Platform configuration
+compose.aegra.yaml    # Docker Compose for aegra + deep-agents-ui
+```
+
 ## Links
 
 - [Issues](https://github.com/redhat-data-and-ai/template-agent/issues)
 - [template-mcp-server](https://github.com/redhat-data-and-ai/template-mcp-server)
+- [deep-agents-ui](https://github.com/langchain-ai/deep-agents-ui)
+- [LangGraph Platform docs](https://docs.langchain.com/langsmith/cli)
