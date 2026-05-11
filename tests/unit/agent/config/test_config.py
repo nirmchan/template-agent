@@ -1,9 +1,5 @@
 """Unit tests for agent_config skill path resolution."""
 
-from pathlib import Path
-
-import pytest
-
 from deep_agent.src.agent.config import AgentConfig
 
 

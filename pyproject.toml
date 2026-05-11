@@ -87,7 +87,10 @@ addopts = [
     "--strict-markers",
     "--strict-config",
 ]
-markers = ["asyncio"]
+markers = [
+    "asyncio",
+    "skills: marks tests as skill evaluation tests (deselect with '-m \"not skills\"')",
+]
 
 [tool.coverage.run]
 source = ["src"]

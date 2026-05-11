@@ -51,7 +51,28 @@ test:
 		echo "Error: Virtual environment not found. Run 'make install' first to set up the environment."; \
 		exit 1; \
 	fi
+	.venv/bin/python -m pytest tests/unit
+
+test-all:
+	@if [ ! -d ".venv" ]; then \
+		echo "Error: Virtual environment not found. Run 'make install' first to set up the environment."; \
+		exit 1; \
+	fi
+	@echo "Running all tests (unit + skills evals)..."
 	.venv/bin/python -m pytest
+
+test-skills:
+	@if [ ! -d ".venv" ]; then \
+		echo "Error: Virtual environment not found. Run 'make install' first to set up the environment."; \
+		exit 1; \
+	fi
+	@echo "Running skills evaluations..."
+	.venv/bin/python -m pytest tests/skills -m skills -v
+
+eval-promptfoo:
+	@echo "Running Promptfoo agent evaluations..."
+	@echo "Make sure agent is running at http://localhost:5002"
+	@cd config/agent/evals/promptfoo && npx promptfoo@latest eval
 
 local:
 	@echo "Setting up local environment..."

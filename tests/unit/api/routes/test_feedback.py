@@ -1,6 +1,6 @@
 """Unit tests for feedback route."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
