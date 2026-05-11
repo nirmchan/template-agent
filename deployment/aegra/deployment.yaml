@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegra-agent
+  labels:
+    app: aegra-agent
+    component: langgraph-api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: aegra-agent
+      component: langgraph-api
+  template:
+    metadata:
+      labels:
+        app: aegra-agent
+        component: langgraph-api
+    spec:
+      serviceAccountName: aegra-agent
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: langgraph-api
+          image: template-agent-aegra:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8123
+              name: http
+              protocol: TCP
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: POSTGRES_PASSWORD
+            - name: GOOGLE_APPLICATION_CREDENTIALS_CONTENT
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: GOOGLE_APPLICATION_CREDENTIALS_CONTENT
+            - name: LANGFUSE_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: LANGFUSE_PUBLIC_KEY
+                  optional: true
+            - name: LANGFUSE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: LANGFUSE_SECRET_KEY
+                  optional: true
+            - name: LANGFUSE_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aegra-secrets
+                  key: LANGFUSE_BASE_URL
+                  optional: true
+            - name: LANGGRAPH_AUTH_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  name: aegra-config
+                  key: LANGGRAPH_AUTH_TYPE
+            - name: PYTHON_LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: aegra-config
+                  key: PYTHON_LOG_LEVEL
+            - name: AEGRA_NUM_WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: aegra-config
+                  key: AEGRA_NUM_WORKERS
+            - name: AEGRA_MAX_CONCURRENT
+              valueFrom:
+                configMapKeyRef:
+                  name: aegra-config
+                  key: AEGRA_MAX_CONCURRENT
+            - name: OTEL_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: aegra-config
+                  key: OTEL_ENABLED
+                  optional: true
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /ok
+              port: 8123
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /ok
+              port: 8123
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ok
+              port: 8123
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      restartPolicy: Always

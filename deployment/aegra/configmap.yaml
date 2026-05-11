@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegra-config
+  labels:
+    app: aegra-agent
+data:
+  LANGGRAPH_AUTH_TYPE: "noop"
+  PYTHON_LOG_LEVEL: "INFO"
+  AEGRA_NUM_WORKERS: "4"
+  AEGRA_MAX_CONCURRENT: "10"
+  OTEL_ENABLED: "false"
+  OTEL_SERVICE_NAME: "template-agent-aegra"

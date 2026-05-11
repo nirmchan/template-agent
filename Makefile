@@ -135,6 +135,31 @@ aegra-ui: aegra-clone-ui
 	@echo "Starting deep-agents-ui on http://localhost:3000..."
 	cd deep-agents-ui && yarn install && yarn dev
 
+aegra-test:
+	@echo "Running aegra unit + integration tests..."
+	python3 -m pytest tests/unit/aegra/ tests/integration/aegra/ -v --ignore=tests/integration/aegra/test_e2e.py
+
+aegra-test-e2e:
+	@echo "Running aegra end-to-end tests (requires running langgraph server)..."
+	python3 -m pytest tests/integration/aegra/test_e2e.py -v -m e2e
+
+aegra-load-test:
+	@echo "Running aegra load test..."
+	python3 scripts/aegra-load-test.py --url http://127.0.0.1:2024 --concurrency 5 --requests 20
+
+aegra-benchmark:
+	@echo "Running aegra performance benchmarks..."
+	python3 scripts/aegra-benchmark.py
+
+aegra-deploy:
+	@./scripts/aegra-deploy.sh deploy
+
+aegra-teardown:
+	@./scripts/aegra-deploy.sh teardown
+
+aegra-status:
+	@./scripts/aegra-deploy.sh status
+
 # Deployment targets
 deploy:
 	@if [ "$(filter openshift,$(MAKECMDGOALS))" != "openshift" ] && [ "$(filter mpp,$(MAKECMDGOALS))" != "mpp" ]; then \
