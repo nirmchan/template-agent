@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from template_agent.src.infrastructure.subagents import load_subagents
+from deep_agent.src.infrastructure.subagents import load_subagents
 
 
 class TestLoadSubagents:
@@ -13,7 +13,7 @@ class TestLoadSubagents:
     def test_load_subagents_returns_none_when_no_configs(self):
         """Test that load_subagents returns None when no subagent configs exist."""
         with patch(
-            "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
         ) as mock_get_configs:
             mock_get_configs.return_value = {}
 
@@ -24,7 +24,7 @@ class TestLoadSubagents:
     def test_load_subagents_raises_error_when_model_missing(self):
         """Test that load_subagents raises ValueError when model is missing."""
         with patch(
-            "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
         ) as mock_get_configs:
             mock_get_configs.return_value = {
                 "analyst": {
@@ -45,12 +45,12 @@ class TestLoadSubagents:
 
         with (
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "template_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.create_model"
             ) as mock_create_model,
-            patch("template_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
             mock_get_configs.return_value = {
                 "analyst": {
@@ -83,15 +83,15 @@ class TestLoadSubagents:
 
         with (
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.resolve_tools"
+                "deep_agent.src.infrastructure.subagents.agent_config.resolve_tools"
             ) as mock_resolve_tools,
             patch(
-                "template_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.create_model"
             ) as mock_create_model,
-            patch("template_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
             mock_get_configs.return_value = {
                 "analyst": {
@@ -128,12 +128,12 @@ class TestLoadSubagents:
 
         with (
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "template_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.create_model"
             ) as mock_create_model,
-            patch("template_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
             mock_get_configs.return_value = {
                 "analyst": {
@@ -167,12 +167,12 @@ class TestLoadSubagents:
 
         with (
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "template_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.create_model"
             ) as mock_create_model,
-            patch("template_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
             mock_get_configs.return_value = {
                 "analyst": {
@@ -204,15 +204,15 @@ class TestLoadSubagents:
 
         with (
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.resolve_tools"
+                "deep_agent.src.infrastructure.subagents.agent_config.resolve_tools"
             ) as mock_resolve_tools,
             patch(
-                "template_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.create_model"
             ) as mock_create_model,
-            patch("template_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
             mock_get_configs.return_value = {
                 "analyst": {
@@ -245,12 +245,12 @@ class TestLoadSubagents:
 
         with (
             patch(
-                "template_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "template_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.create_model"
             ) as mock_create_model,
-            patch("template_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
             mock_get_configs.return_value = {
                 "analyst": {

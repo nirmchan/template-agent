@@ -1,9 +1,9 @@
 apiVersion: image.openshift.io/v1
 kind: ImageStream
 metadata:
-  name: template-agent
+  name: agent
   labels:
-    app: template-agent
+    app: agent
     component: agent
 spec:
   lookupPolicy:

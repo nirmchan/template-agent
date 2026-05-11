@@ -1,0 +1,70 @@
+# Deployment configuration for the agent.
+# Edit values here; they are consumed by the OpenShift kustomization.
+
+app:
+  name: agent
+  component: agent
+  replicas: 1
+
+image:
+  name: agent
+  tag: latest
+
+container:
+  port: 5002
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+build:
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1000m"
+    limits:
+      memory: "4Gi"
+      cpu: "4"
+
+# Non-sensitive configuration (maps to ConfigMap)
+config:
+  AGENT_HOST: "0.0.0.0"
+  AGENT_PORT: "5002"
+  PYTHON_LOG_LEVEL: "INFO"
+  LANGFUSE_TRACING_ENVIRONMENT: "production"
+  REQUEST_LOGGING_ENABLED: "true"
+  REQUEST_LOG_HEADERS: "true"
+  REQUEST_LOG_BODY: "false"
+  REQUEST_LOG_BODY_MAX_SIZE: "10240"
+
+# Sensitive configuration (maps to Secret)
+# Values are injected by the ArgoCD Vault Plugin (AVP) at deploy time.
+# Use <path:vault_path#key> placeholder syntax.
+secrets:
+    POSTGRES_HOST: "<path:secret/data/<team>/<env>/agent#POSTGRES_HOST>"
+    POSTGRES_PORT: "<path:secret/data/<team>/<env>/agent#POSTGRES_PORT>"
+    POSTGRES_DB: "<path:secret/data/<team>/<env>/agent#POSTGRES_DB>"
+    POSTGRES_USER: "<path:secret/data/<team>/<env>/agent#POSTGRES_USER>"
+    POSTGRES_PASSWORD: "<path:secret/data/<team>/<env>/agent#POSTGRES_PASSWORD>"
+    LANGFUSE_PUBLIC_KEY: "<path:secret/data/<team>/<env>/agent#LANGFUSE_PUBLIC_KEY>"
+    LANGFUSE_SECRET_KEY: "<path:secret/data/<team>/<env>/agent#LANGFUSE_SECRET_KEY>"
+    LANGFUSE_BASE_URL: "<path:secret/data/<team>/<env>/agent#LANGFUSE_BASE_URL>"
+    GOOGLE_APPLICATION_CREDENTIALS_CONTENT: "<path:secret/data/<team>/<env>/agent#GOOGLE_APPLICATION_CREDENTIALS_CONTENT>"

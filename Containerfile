@@ -24,7 +24,7 @@ USER default
 # copy source code and files
 # --------------------------------------------------------------------------------------------------
 
-COPY template_agent /app/template_agent
+COPY deep_agent /app/deep_agent
 
 # --------------------------------------------------------------------------------------------------
 # Set PYTHONPATH to include /app
@@ -37,4 +37,4 @@ ENV PYTHONPATH=/app
 # add entrypoint for the container
 # --------------------------------------------------------------------------------------------------
 
-CMD ["/app/.venv/bin/python", "-m", "template_agent.src.main"]
+CMD ["/app/.venv/bin/python", "-m", "deep_agent.src.main"]

@@ -3,7 +3,7 @@
 import pytest
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 
-from template_agent.src.exceptions import AppException, ErrorCode, ErrorCodes
+from deep_agent.src.exceptions import AppException, ErrorCode, ErrorCodes
 
 
 class TestErrorCode:

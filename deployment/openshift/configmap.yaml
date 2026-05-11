@@ -1,10 +1,16 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: template-agent-config
+  name: agent-config
   labels:
-    app: template-agent
+    app: agent
     component: agent
 data:
+  AGENT_HOST: "0.0.0.0"
+  AGENT_PORT: "5002"
   PYTHON_LOG_LEVEL: "INFO"
   LANGFUSE_TRACING_ENVIRONMENT: "production"
+  REQUEST_LOGGING_ENABLED: "true"
+  REQUEST_LOG_HEADERS: "true"
+  REQUEST_LOG_BODY: "false"
+  REQUEST_LOG_BODY_MAX_SIZE: "10240"

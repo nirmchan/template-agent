@@ -1,14 +1,22 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: template-agent
+  name: agent
   labels:
-    app: template-agent
+    app: agent
     component: agent
+    shard: internal
+  annotations:
+    haproxy.router.openshift.io/timeout: 18000s
+    haproxy.router.openshift.io/balance: roundrobin
+    haproxy.router.openshift.io/rate-limit-connections: "true"
+    haproxy.router.openshift.io/rate-limit-connections.concurrent-tcp: "100"
+    haproxy.router.openshift.io/rate-limit-connections.rate-http: "1000"
+    haproxy.router.openshift.io/rate-limit-connections.rate-tcp: "1000"
 spec:
   to:
     kind: Service
-    name: template-agent
+    name: agent
   port:
     targetPort: http
   tls:

@@ -2,8 +2,8 @@
 
 import pytest
 
-from template_agent.src.agent.manager import AgentManager
-from template_agent.src.streaming import MessageDeduplicator, ToolCallTracker
+from deep_agent.src.agent.manager import AgentManager
+from deep_agent.src.streaming import MessageDeduplicator, ToolCallTracker
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ class TestAgentManager:
 
     def test_manager_handlers_are_configured(self, agent_manager: AgentManager):
         """Test that handlers are properly configured with dependencies."""
-        from template_agent.src.streaming.handlers import (
+        from deep_agent.src.streaming.handlers import (
             TokenEventHandler,
             UpdateEventHandler,
         )

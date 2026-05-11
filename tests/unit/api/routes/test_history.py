@@ -6,13 +6,13 @@ import pytest
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from template_agent.src.api.routes.memory.history import (
+from deep_agent.src.api.routes.memory.history import (
     convert_with_metadata,
     history,
     is_subagent_checkpoint,
     rewrite_task_tool_calls,
 )
-from template_agent.src.schema import ChatHistoryResponse
+from deep_agent.src.schema import ChatHistoryResponse
 
 
 def create_mock_state(
@@ -74,7 +74,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -114,7 +114,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -138,7 +138,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -170,7 +170,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -207,7 +207,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -243,7 +243,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -314,7 +314,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -359,7 +359,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -443,7 +443,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -471,7 +471,7 @@ class TestHistory:
         mock_agent.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
-            "template_agent.src.api.routes.memory.history.get_template_agent"
+            "deep_agent.src.api.routes.memory.history.get_deep_agent"
         ) as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
@@ -566,7 +566,7 @@ class TestHistoryHelpers:
 
     def test_rewrite_task_tool_calls_rewrites_subagent(self):
         """Test that 'task' tool calls are rewritten to subagent names."""
-        from template_agent.src.schema import ChatMessage
+        from deep_agent.src.schema import ChatMessage
 
         msg = ChatMessage(
             type="ai",
@@ -588,7 +588,7 @@ class TestHistoryHelpers:
 
     def test_rewrite_task_tool_calls_preserves_non_task_tools(self):
         """Test that non-task tool calls are not modified."""
-        from template_agent.src.schema import ChatMessage
+        from deep_agent.src.schema import ChatMessage
 
         msg = ChatMessage(
             type="ai",
@@ -609,7 +609,7 @@ class TestHistoryHelpers:
 
     def test_rewrite_task_tool_calls_handles_no_tool_calls(self):
         """Test that messages without tool calls are handled gracefully."""
-        from template_agent.src.schema import ChatMessage
+        from deep_agent.src.schema import ChatMessage
 
         msg = ChatMessage(type="ai", content="Hello", tool_calls=[])
 

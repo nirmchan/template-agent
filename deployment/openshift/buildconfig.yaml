@@ -1,9 +1,9 @@
 apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata:
-  name: template-agent
+  name: agent
   labels:
-    app: template-agent
+    app: agent
     component: agent
 spec:
   successfulBuildsHistoryLimit: 1
@@ -11,7 +11,7 @@ spec:
   output:
     to:
       kind: ImageStreamTag
-      name: template-agent:latest
+      name: agent:latest
   source:
     type: Binary
     binary: {}

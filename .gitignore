@@ -189,3 +189,4 @@ uv.lock
 bandit-report.json
 safety-report.json
 .safety-project.ini
+TASKS.md

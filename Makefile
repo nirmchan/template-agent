@@ -59,7 +59,7 @@ local:
 	@echo "Starting agent locally on port 5002..."
 	@echo "Health check available at: http://localhost:5002/health"
 	@echo "Press Ctrl+C to stop the server"
-	@. .venv/bin/activate && python -m template_agent.src.main
+	@. .venv/bin/activate && python -m deep_agent.src.main
 
 container:
 	export PODMAN_COMPOSE_SILENT=true
@@ -86,12 +86,12 @@ openshift:
 	oc project $(NAMESPACE) || (echo "Error: Cannot switch to namespace '$(NAMESPACE)'. Check permissions." && exit 1); \
 	echo "Updating namespace references..."; \
 	sed -i.bak "s|NAMESPACE_PLACEHOLDER|$(NAMESPACE)|g" deployment/openshift/deployment.yaml; \
-	sed -i.bak "s|namespace: template-agent|namespace: $(NAMESPACE)|g" deployment/openshift/kustomization.yaml; \
+	sed -i.bak "s|namespace: agent|namespace: $(NAMESPACE)|g" deployment/openshift/kustomization.yaml; \
 	echo "Creating BuildConfig and ImageStream..."; \
 	oc apply -f deployment/openshift/buildconfig.yaml; \
 	oc apply -f deployment/openshift/imagestream.yaml; \
 	echo "Building container image from source..."; \
-	oc start-build template-agent --from-dir=. \
+	oc start-build agent --from-dir=. \
 		--exclude='(^|/)\.venv(/|$$)' \
 		--exclude='(^|/)__pycache__(/|$$)' \
 		--exclude='(^|/)\.pytest_cache(/|$$)' \
@@ -106,12 +106,12 @@ openshift:
 	rm -f deployment/openshift/deployment.yaml.bak deployment/openshift/kustomization.yaml.bak; \
 	echo "Deployment complete!"; \
 	echo "Checking deployment status..."; \
-	oc get pods -l app=template-agent; \
+	oc get pods -l app=agent; \
 	echo ""; \
 	echo "Useful commands:"; \
-	echo "  View logs: oc logs -l app=template-agent --tail=100"; \
-	echo "  Get route: oc get route template-agent"; \
-	echo "  Check status: oc get pods,svc,route -l app=template-agent"
+	echo "  View logs: oc logs -l app=agent --tail=100"; \
+	echo "  Get route: oc get route agent"; \
+	echo "  Check status: oc get pods,svc,route -l app=agent"
 
 mpp:
 	@echo "Checking for oc CLI..."
@@ -148,7 +148,7 @@ mpp:
 	oc apply -f deployment/mpp/buildconfig.yaml; \
 	oc apply -f deployment/mpp/imagestream.yaml; \
 	echo "Building container image from source..."; \
-	oc start-build template-agent --from-dir=. \
+	oc start-build agent --from-dir=. \
 		--exclude='(^|/)\.venv(/|$$)' \
 		--exclude='(^|/)__pycache__(/|$$)' \
 		--exclude='(^|/)\.pytest_cache(/|$$)' \
@@ -163,12 +163,12 @@ mpp:
 	rm -f deployment/mpp/tenant.yaml.bak; \
 	echo "Deployment complete!"; \
 	echo "Checking deployment status..."; \
-	oc get pods -l app=template-agent; \
+	oc get pods -l app=agent; \
 	echo ""; \
 	echo "Useful commands:"; \
-	echo "  View logs: oc logs -l app=template-agent --tail=100"; \
-	echo "  Get route: oc get route template-agent"; \
-	echo "  Check status: oc get pods,svc,route -l app=template-agent"
+	echo "  View logs: oc logs -l app=agent --tail=100"; \
+	echo "  Get route: oc get route agent"; \
+	echo "  Check status: oc get pods,svc,route -l app=agent"
 
 undeploy:
 	@if [ "$(filter openshift,$(MAKECMDGOALS))" = "openshift" ]; then \
@@ -176,7 +176,7 @@ undeploy:
 		which oc > /dev/null || (echo "Error: oc CLI not found. Please install OpenShift CLI." && exit 1); \
 		oc project $(NAMESPACE) || (echo "Error: Cannot switch to namespace '$(NAMESPACE)'" && exit 1); \
 		echo "Removing OpenShift deployment..."; \
-		oc delete deployment,service,route,configmap,secret,pvc,buildconfig,imagestream -l app=template-agent 2>/dev/null || true; \
+		oc delete deployment,service,route,configmap,secret,pvc,buildconfig,imagestream -l app=agent 2>/dev/null || true; \
 		echo "Undeployment complete!"; \
 		exit 1; \
 	elif [ "$(filter mpp,$(MAKECMDGOALS))" = "mpp" ]; then \
@@ -185,7 +185,7 @@ undeploy:
 		which oc > /dev/null || (echo "Error: oc CLI not found. Please install OpenShift CLI." && exit 1); \
 		oc project $$RUNTIME_NAMESPACE || (echo "Error: Cannot switch to runtime namespace '$$RUNTIME_NAMESPACE'" && exit 1); \
 		echo "Removing MPP deployment..."; \
-		oc delete deployment,service,route,configmap,secret,pvc,buildconfig,imagestream -l app=template-agent 2>/dev/null || true; \
+		oc delete deployment,service,route,configmap,secret,pvc,buildconfig,imagestream -l app=agent 2>/dev/null || true; \
 		echo "Undeployment complete!"; \
 		exit 1; \
 	else \

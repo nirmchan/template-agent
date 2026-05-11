@@ -16,7 +16,7 @@ cd template-agent
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 cp .env.example .env          # edit with your config
-uv run python -m template_agent.src.main
+uv run python -m deep_agent.src.main
 ```
 
 The [template-mcp-server](https://github.com/redhat-data-and-ai/template-mcp-server) must be running before starting the agent.
@@ -61,7 +61,7 @@ Client examples (Streamlit, Python async) are in [`examples/`](./examples/).
 ## Project Structure
 
 ```
-template_agent/
+deep_agent/
 ├── src/
 │   ├── core/
 │   │   ├── agent.py          # Agent initialisation + subagent loading
@@ -98,7 +98,7 @@ template_agent/
 pytest
 
 # With coverage
-pytest --cov=template_agent.src --cov-report=html
+pytest --cov=deep_agent.src --cov-report=html
 
 # Agent-level tests only
 pytest tests/agents/ -v
@@ -123,17 +123,17 @@ Tests are organized by agent (orchestrator + subagents), each with its associate
 **Analyst** (`test_analyst.py`)
 - Skill: `bmi-report`
 - Tools: `calculate_bmi`, `search_web`
-- Evals: `template_agent/agent_config/skills/bmi-report/evals/evals.json`
+- Evals: `deep_agent/agent_config/skills/bmi-report/evals/evals.json`
 
 **Publisher** (`test_publisher.py`)
 - Skill: `email-formatter`
 - Tools: `send_email`
-- Evals: `template_agent/agent_config/skills/email-formatter/evals/evals.json`
+- Evals: `deep_agent/agent_config/skills/email-formatter/evals/evals.json`
 
 **Orchestrator** (`test_orchestrator.py`)
 - Skill: `client-intake`
 - Subagents: Analyst + Publisher
-- Evals: `template_agent/agent_config/skills/client-intake/evals/evals.json`
+- Evals: `deep_agent/agent_config/skills/client-intake/evals/evals.json`
 
 Test results saved to `tests/workspaces/{agent}-workspace/eval-{id}/`:
 - `outputs/report.md` - Agent output
