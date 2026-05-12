@@ -69,12 +69,20 @@ def _build_server_config(
     return config
 
 
-async def _connect_single_server(name: str, config: dict, timeout: int) -> list:
+async def _connect_single_server(
+    name: str, config: dict, timeout: int, *, required: bool = False
+) -> list:
     """Connect to one MCP server and return its tools.
 
     Failures are logged and return empty list for fault isolation.
-    Auth rejections (401/403) are logged at info level since they are
-    expected when loading tools at startup without a user token.
+
+    Args:
+        name: Human-readable server identifier used in log messages.
+        config: MCP client connection config (url, transport, headers, etc.).
+        timeout: Seconds before the connection attempt is cancelled.
+        required: If True the server is explicitly enabled in config,
+            so connection failures are logged at error level.
+            If False (startup probe without auth), failures are warnings.
     """
     try:
         async with asyncio.timeout(timeout):
@@ -87,6 +95,8 @@ async def _connect_single_server(name: str, config: dict, timeout: int) -> list:
     except Exception as exc:
         if _is_auth_error(exc):
             logger.info(f"[{name}] requires authentication — tools loaded per-request")
+        elif _is_connection_error(exc) and not required:
+            logger.warning(f"[{name}] not reachable ({config.get('url')}) — skipped")
         else:
             logger.error(
                 f"[{name}] connection failed ({config.get('url')})", exc_info=True
@@ -102,6 +112,22 @@ def _is_auth_error(exc: BaseException) -> bool:
             return True
         if hasattr(sub, "__cause__") and sub.__cause__:
             if _is_auth_error(sub.__cause__):
+                return True
+    return False
+
+
+def _is_connection_error(exc: BaseException) -> bool:
+    """Check if an exception is a connection refused / unreachable error."""
+    for sub in getattr(exc, "exceptions", [exc]):
+        msg = str(sub).lower()
+        if (
+            "connecterror" in msg
+            or "connection attempts failed" in msg
+            or "connection refused" in msg
+        ):
+            return True
+        if hasattr(sub, "__cause__") and sub.__cause__:
+            if _is_connection_error(sub.__cause__):
                 return True
     return False
 
@@ -134,12 +160,14 @@ async def get_mcp_tools(
 
     logger.info(f"Connecting to {len(enabled)} MCP server(s): {', '.join(enabled)}")
 
+    has_auth = bool(sso_token)
     results = await asyncio.gather(
         *[
             _connect_single_server(
                 name=name,
                 config=_build_server_config(entry, sso_token, refresh_token),
                 timeout=entry.get("timeout", 30),
+                required=has_auth,
             )
             for name, entry in enabled.items()
         ]

@@ -116,6 +116,8 @@ def trace_span(
 
 _langfuse_tracing_initialized = False
 
+LANGFUSE_TRACE_NAME = os.environ.get("LANGFUSE_TRACE_NAME", "template-agent")
+
 
 def _langfuse_configured() -> bool:
     """Return True if the minimum Langfuse credentials are present."""
@@ -125,21 +127,19 @@ def _langfuse_configured() -> bool:
 
 
 def setup_langfuse_tracing() -> None:
-    """Register Langfuse as a global LangChain callback via configure hook.
+    """Register Langfuse as a global LangChain callback and Aegra observability provider.
 
-    Uses ``register_configure_hook`` — the same mechanism LangSmith uses to
-    auto-inject its tracer.  When ``LANGFUSE_PUBLIC_KEY`` is set in the
-    environment, LangChain's ``CallbackManager.configure()`` auto-creates a
-    fresh ``CallbackHandler()`` for every run (each handler reads credentials
-    from ``LANGFUSE_SECRET_KEY`` / ``LANGFUSE_BASE_URL`` env vars).
+    Two mechanisms work together:
 
-    This must be called **once** at process startup (before any graph
-    invocations).  Calling it multiple times is safe — subsequent calls
-    are no-ops.
+    1. ``register_configure_hook`` — the same mechanism LangSmith uses to
+       auto-inject its tracer. Creates a fresh ``CallbackHandler()`` per run.
+    2. ``LangfuseObservabilityProvider`` — plugs into Aegra's
+       ``ObservabilityManager`` so that ``create_run_config`` injects
+       ``langfuse_user_id``, ``langfuse_session_id``, and
+       ``langfuse_trace_name`` into ``RunnableConfig.metadata``.
+       The CallbackHandler reads these automatically.
 
-    The exported graph stays a pure ``CompiledStateGraph`` (no
-    ``with_config`` wrapping), so Aegra state-management endpoints
-    (``aget_state``, ``aupdate_state``) continue to work.
+    Must be called **once** at process startup. Subsequent calls are no-ops.
     """
     global _langfuse_tracing_initialized
     if _langfuse_tracing_initialized:
@@ -150,6 +150,7 @@ def setup_langfuse_tracing() -> None:
         logger.info("Langfuse credentials not set — auto-tracing disabled")
         return
 
+    # --- 1. Register LangChain callback hook ---
     try:
         import contextvars
 
@@ -171,8 +172,57 @@ def setup_langfuse_tracing() -> None:
         logger.warning(
             "langfuse or langchain_core not available — auto-tracing disabled"
         )
+        return
     except Exception:
         logger.warning("Failed to register Langfuse tracing hook", exc_info=True)
+        return
+
+    # --- 2. Register Aegra observability provider for metadata injection ---
+    try:
+        from aegra_api.observability.base import get_observability_manager
+
+        manager = get_observability_manager()
+        manager.register_provider(LangfuseObservabilityProvider())
+        logger.info("Langfuse observability provider registered with Aegra")
+    except ImportError:
+        logger.debug("aegra_api not available — skipping provider registration")
+    except Exception:
+        logger.warning(
+            "Failed to register Langfuse observability provider", exc_info=True
+        )
+
+
+class LangfuseObservabilityProvider:
+    """Aegra ObservabilityProvider that injects Langfuse metadata into RunnableConfig.
+
+    The Langfuse v4 ``CallbackHandler`` auto-reads these keys from
+    ``RunnableConfig.metadata``:
+
+    - ``langfuse_user_id`` — who triggered the run
+    - ``langfuse_session_id`` — groups traces by conversation (thread)
+    - ``langfuse_trace_name`` — human-readable trace name in the UI
+    """
+
+    def get_callbacks(self) -> list[Any]:
+        """Return empty list — callbacks are handled by register_configure_hook."""
+        return []
+
+    def get_metadata(
+        self, run_id: str, thread_id: str, user_identity: str | None = None
+    ) -> dict[str, Any]:
+        """Return Langfuse metadata keys for RunnableConfig injection."""
+        metadata: dict[str, Any] = {
+            "langfuse_trace_name": LANGFUSE_TRACE_NAME,
+        }
+        if user_identity:
+            metadata["langfuse_user_id"] = user_identity
+        if thread_id:
+            metadata["langfuse_session_id"] = thread_id
+        return metadata
+
+    def is_enabled(self) -> bool:
+        """Return True if Langfuse credentials are configured."""
+        return _langfuse_configured()
 
 
 def get_langfuse_client():
