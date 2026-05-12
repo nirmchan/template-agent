@@ -34,21 +34,26 @@ def _get_server_configs() -> dict[str, dict]:
     return agent_config.get_mcp_servers()
 
 
-def _build_server_config(entry: dict, sso_token: str | None) -> dict:
+def _build_server_config(
+    entry: dict,
+    sso_token: str | None,
+    refresh_token: str | None = None,
+) -> dict:
     """Build MultiServerMCPClient config from server definition.
 
     Args:
         entry: Server definition with url, auth, ssl_verify, transport.
         sso_token: Optional bearer token for authentication.
+        refresh_token: Optional refresh token for downstream propagation.
 
     Returns:
         Config dict for MultiServerMCPClient.
     """
-    headers = (
-        {"Authorization": f"Bearer {sso_token}"}
-        if entry.get("auth", True) and sso_token
-        else {}
-    )
+    headers: dict[str, str] = {}
+    if entry.get("auth", True) and sso_token:
+        headers["Authorization"] = f"Bearer {sso_token}"
+        if refresh_token:
+            headers["X-Refresh-Token"] = refresh_token
 
     config = {
         "url": entry["url"],
@@ -82,7 +87,10 @@ async def _connect_single_server(name: str, config: dict, timeout: int) -> list:
     return []
 
 
-async def get_mcp_tools(sso_token: str | None = None) -> list:
+async def get_mcp_tools(
+    sso_token: str | None = None,
+    refresh_token: str | None = None,
+) -> list:
     """Connect to MCP server(s) and retrieve available tools.
 
     Loads server definitions from ``config/mcp.json``, connects to
@@ -93,6 +101,7 @@ async def get_mcp_tools(sso_token: str | None = None) -> list:
 
     Args:
         sso_token: Optional SSO token for authentication.
+        refresh_token: Optional refresh token for downstream propagation.
 
     Returns:
         List of available MCP tools (empty list if all connections fail).
@@ -110,7 +119,7 @@ async def get_mcp_tools(sso_token: str | None = None) -> list:
         *[
             _connect_single_server(
                 name=name,
-                config=_build_server_config(entry, sso_token),
+                config=_build_server_config(entry, sso_token, refresh_token),
                 timeout=entry.get("timeout", 30),
             )
             for name, entry in enabled.items()

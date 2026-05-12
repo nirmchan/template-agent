@@ -1,8 +1,8 @@
-"""State conversion utilities for aegra integration.
+"""State conversion utilities for Aegra integration.
 
-Bridges the template-agent's StreamRequest/response format with the
-LangGraph Platform's standard state format. When the agent runs via
-`langgraph dev` / `langgraph up`, messages arrive in LangGraph's native
+Bridges the template-agent's StreamRequest/response format with
+Aegra's standard state format. When the agent runs via
+`aegra dev` / `aegra serve`, messages arrive in LangGraph's native
 format. These helpers convert between the two worlds.
 """
 

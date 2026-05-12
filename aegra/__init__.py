@@ -1,11 +1,12 @@
-"""Aegra integration for LangGraph Platform deployment.
+"""Aegra integration for agent deployment.
 
-This package bridges template-agent with the LangGraph Platform (aegra),
-enabling the agent to be served via `langgraph dev` or `langgraph up`
+This package bridges template-agent with Aegra,
+enabling the agent to be served via `aegra dev` or `aegra serve`
 and used with deep-agents-ui.
 
 Modules:
-    graph: Graph builder and exported agent for langgraph.json
+    graph: Graph builder and exported agent for aegra.json
+    auth: OIDC/SSO authentication with token propagation
     state: Extended LangGraph state schema
     converters: State conversion and serialization utilities
     serialization: Full state serialization/deserialization

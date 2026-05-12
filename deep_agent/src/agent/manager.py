@@ -52,15 +52,18 @@ class AgentManager:
     def __init__(
         self,
         redhat_sso_token: str | None = None,
+        refresh_token: str | None = None,
         langfuse_client: Optional[Langfuse] = None,
     ):
         """Initialize the AgentManager.
 
         Args:
             redhat_sso_token: Optional SSO token for MCP authentication.
+            refresh_token: Optional refresh token for downstream propagation.
             langfuse_client: Optional Langfuse client for tracing (from app.state).
         """
         self.redhat_sso_token = redhat_sso_token
+        self.refresh_token = refresh_token
         self.langfuse_client = langfuse_client
 
         # Initialize streaming components
@@ -86,7 +89,7 @@ class AgentManager:
         Yields:
             Simplified event dictionaries with 'type' and 'content' fields.
         """
-        async with get_deep_agent(self.redhat_sso_token) as agent:
+        async with get_deep_agent(self.redhat_sso_token, self.refresh_token) as agent:
             try:
                 # Reset per-stream state
                 self.deduplicator.reset()

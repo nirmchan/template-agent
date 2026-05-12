@@ -25,7 +25,10 @@ logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 
 
 @asynccontextmanager
-async def get_deep_agent(sso_token: str | None = None):
+async def get_deep_agent(
+    sso_token: str | None = None,
+    refresh_token: str | None = None,
+):
     """Get a fully initialized deep agent with MCP tools, skills, subagents, and memory.
 
     This function creates and configures a deep agent using the deepagents library
@@ -35,6 +38,7 @@ async def get_deep_agent(sso_token: str | None = None):
     Args:
         sso_token: Optional access token for authentication. If provided,
             it will be used for authorization headers in MCP client requests.
+        refresh_token: Optional refresh token for downstream propagation.
 
     Yields:
         The initialized deep agent instance.
@@ -60,7 +64,7 @@ async def get_deep_agent(sso_token: str | None = None):
     model = create_model(model_name=model_name)
 
     # Initialize MCP client and get tools
-    mcp_tools = await get_mcp_tools(sso_token=sso_token)
+    mcp_tools = await get_mcp_tools(sso_token=sso_token, refresh_token=refresh_token)
 
     # Resolve tools from tool names in frontmatter
     tools = agent_config.resolve_tools(tool_names, mcp_tools, agent_name=agent_name)

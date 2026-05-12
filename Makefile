@@ -1,4 +1,4 @@
-.PHONY: local dev test clean deploy undeploy aegra-dev aegra-up aegra-build aegra-clone-ui
+.PHONY: local dev test clean deploy undeploy
 
 # OpenShift namespace (can be overridden: make deploy openshift NAMESPACE=my-project)
 NAMESPACE ?= $(shell oc project -q 2>/dev/null)
@@ -84,81 +84,52 @@ local-with-mock:
 	@echo "  Terminal 1: make mock-mcp"
 	@echo "  Terminal 2: make local"
 	@echo ""
-	@echo "Or use docker-compose to run everything together"
+	@echo "Or use podman-compose to run everything together"
 
 local:
 	@echo "Setting up local environment..."
 	@test -f .env || (echo "Creating .env from .env.example..." && cp .env.example .env)
-	@echo "Starting agent locally on port 5002..."
-	@echo "Health check available at: http://localhost:5002/health"
+	@echo "Starting agent with LangGraph Platform..."
+	@echo "API available at: http://localhost:5002"
 	@echo "Press Ctrl+C to stop the server"
-	@. .venv/bin/activate && python -m deep_agent.src.main
+	@. .venv/bin/activate && aegra dev --port 5002
 
 container:
 	export PODMAN_COMPOSE_SILENT=true
 	podman-compose --no-ansi up --build --force-recreate --remove-orphans  --timeout=60
 
 # ---------------------------------------------------------------------------
-# Aegra / LangGraph Platform targets
+# Development environment targets
 # ---------------------------------------------------------------------------
 
-aegra-clone-ui:
-	@if [ ! -d "deep-agents-ui" ]; then \
-		echo "Cloning deep-agents-ui..."; \
-		git clone https://github.com/langchain-ai/deep-agents-ui.git; \
-	else \
-		echo "deep-agents-ui/ already exists, pulling latest..."; \
-		cd deep-agents-ui && git pull; \
-	fi
-
-aegra-dev:
-	@echo "Starting LangGraph dev server (no Docker)..."
-	@echo "Agent API: http://127.0.0.1:2024"
-	@echo "Studio:    https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024"
+dev: ## Start full dev stack with all services (Redis, Postgres, Langfuse, Jaeger)
+	@echo "Starting development stack..."
+	@echo "Services: pgvector, redis, jaeger, template-agent"
+	@echo "Agent:    http://localhost:5002"
+	@echo "Jaeger:   http://localhost:16686"
 	@echo ""
-	@echo "In deep-agents-ui, set:"
-	@echo "  Deployment URL: http://127.0.0.1:2024"
-	@echo "  Assistant ID:   agent"
+	@test -f .env || (echo "Creating .env from .env.example..." && cp .env.example .env)
+	podman-compose -f compose.dev.yaml up --build -d
 	@echo ""
-	@. .venv/bin/activate && langgraph dev --no-browser
+	@echo "Tailing agent logs (Ctrl+C to stop)..."
+	@echo ""
+	podman-compose -f compose.dev.yaml logs -f template-agent
 
-aegra-up:
-	@echo "Starting LangGraph server in Docker..."
-	@echo "Make sure Docker is running."
-	langgraph up -d compose.aegra.yaml --port 2024 --wait
+dev-down: ## Stop dev stack
+	podman-compose -f compose.dev.yaml down
 
-aegra-build:
-	@echo "Building LangGraph Docker image..."
-	langgraph build -t template-agent-aegra
+dev-clean: ## Stop dev stack and remove all data
+	podman-compose -f compose.dev.yaml down -v
+	@echo "All dev data volumes removed"
 
-aegra-ui: aegra-clone-ui
-	@echo "Starting deep-agents-ui on http://localhost:3000..."
-	cd deep-agents-ui && yarn install && yarn dev
+dev-logs: ## Tail all service logs
+	podman-compose -f compose.dev.yaml logs -f
 
-aegra-test:
-	@echo "Running aegra unit + integration tests..."
-	python3 -m pytest tests/unit/aegra/ tests/integration/aegra/ -v --ignore=tests/integration/aegra/test_e2e.py
+dev-restart: ## Restart dev stack
+	podman-compose -f compose.dev.yaml restart
 
-aegra-test-e2e:
-	@echo "Running aegra end-to-end tests (requires running langgraph server)..."
-	python3 -m pytest tests/integration/aegra/test_e2e.py -v -m e2e
-
-aegra-load-test:
-	@echo "Running aegra load test..."
-	python3 scripts/aegra-load-test.py --url http://127.0.0.1:2024 --concurrency 5 --requests 20
-
-aegra-benchmark:
-	@echo "Running aegra performance benchmarks..."
-	python3 scripts/aegra-benchmark.py
-
-aegra-deploy:
-	@./scripts/aegra-deploy.sh deploy
-
-aegra-teardown:
-	@./scripts/aegra-deploy.sh teardown
-
-aegra-status:
-	@./scripts/aegra-deploy.sh status
+dev-agent: ## Restart just the agent service
+	podman-compose -f compose.dev.yaml restart template-agent
 
 # Deployment targets
 deploy:
@@ -180,11 +151,11 @@ openshift:
 	echo "Switching to namespace..."; \
 	oc project $(NAMESPACE) || (echo "Error: Cannot switch to namespace '$(NAMESPACE)'. Check permissions." && exit 1); \
 	echo "Updating namespace references..."; \
-	sed -i.bak "s|NAMESPACE_PLACEHOLDER|$(NAMESPACE)|g" deployment/openshift/deployment.yaml; \
-	sed -i.bak "s|namespace: agent|namespace: $(NAMESPACE)|g" deployment/openshift/kustomization.yaml; \
+	sed -i.bak "s|NAMESPACE_PLACEHOLDER|$(NAMESPACE)|g" deployment/overlays/openshift/deployment.yaml; \
+	sed -i.bak "s|namespace: agent|namespace: $(NAMESPACE)|g" deployment/overlays/openshift/kustomization.yaml; \
 	echo "Creating BuildConfig and ImageStream..."; \
-	oc apply -f deployment/openshift/buildconfig.yaml; \
-	oc apply -f deployment/openshift/imagestream.yaml; \
+	oc apply -f deployment/overlays/openshift/buildconfig.yaml; \
+	oc apply -f deployment/overlays/openshift/imagestream.yaml; \
 	echo "Building container image from source..."; \
 	oc start-build agent --from-dir=. \
 		--exclude='(^|/)\.venv(/|$$)' \
@@ -195,10 +166,10 @@ openshift:
 		--exclude='(^|/)\.mypy_cache(/|$$)' \
 		--exclude='(^|/)\.ruff_cache(/|$$)' \
 		--exclude='.*\.log$$' \
-		--follow || (mv deployment/openshift/deployment.yaml.bak deployment/openshift/deployment.yaml 2>/dev/null; mv deployment/openshift/kustomization.yaml.bak deployment/openshift/kustomization.yaml 2>/dev/null; exit 1); \
+		--follow || (mv deployment/overlays/openshift/deployment.yaml.bak deployment/overlays/openshift/deployment.yaml 2>/dev/null; mv deployment/overlays/openshift/kustomization.yaml.bak deployment/overlays/openshift/kustomization.yaml 2>/dev/null; exit 1); \
 	echo "Deploying resources to OpenShift..."; \
-	oc apply -k deployment/openshift/ || (mv deployment/openshift/deployment.yaml.bak deployment/openshift/deployment.yaml 2>/dev/null; mv deployment/openshift/kustomization.yaml.bak deployment/openshift/kustomization.yaml 2>/dev/null; exit 1); \
-	rm -f deployment/openshift/deployment.yaml.bak deployment/openshift/kustomization.yaml.bak; \
+	oc apply -k deployment/overlays/openshift/ || (mv deployment/overlays/openshift/deployment.yaml.bak deployment/overlays/openshift/deployment.yaml 2>/dev/null; mv deployment/overlays/openshift/kustomization.yaml.bak deployment/overlays/openshift/kustomization.yaml 2>/dev/null; exit 1); \
+	rm -f deployment/overlays/openshift/deployment.yaml.bak deployment/overlays/openshift/kustomization.yaml.bak; \
 	echo "Deployment complete!"; \
 	echo "Checking deployment status..."; \
 	oc get pods -l app=agent; \

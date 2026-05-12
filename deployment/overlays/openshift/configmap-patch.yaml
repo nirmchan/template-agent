@@ -2,10 +2,8 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: agent-config
-  labels:
-    app: agent
-    component: agent
 data:
+  # OpenShift-specific config
   AGENT_HOST: "0.0.0.0"
   AGENT_PORT: "5002"
   PYTHON_LOG_LEVEL: "INFO"
@@ -14,3 +12,10 @@ data:
   REQUEST_LOG_HEADERS: "true"
   REQUEST_LOG_BODY: "false"
   REQUEST_LOG_BODY_MAX_SIZE: "10240"
+
+  # Redis (inherits from base, can override)
+  REDIS_HOST: "redis"
+  REDIS_MAX_CONNECTIONS: "20"
+
+  # OTEL (inherits from base)
+  OTEL_SERVICE_NAME: "template-agent-openshift"

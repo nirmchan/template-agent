@@ -55,21 +55,19 @@ spec:
                   key: LANGFUSE_TRACING_ENVIRONMENT
             - name: POSTGRES_HOST
               valueFrom:
-                secretKeyRef:
-                  name: agent-secrets
+                configMapKeyRef:
+                  name: agent-config
                   key: POSTGRES_HOST
-                  optional: true
             - name: POSTGRES_PORT
               valueFrom:
-                secretKeyRef:
-                  name: agent-secrets
+                configMapKeyRef:
+                  name: agent-config
                   key: POSTGRES_PORT
             - name: POSTGRES_DB
               valueFrom:
-                secretKeyRef:
-                  name: agent-secrets
+                configMapKeyRef:
+                  name: agent-config
                   key: POSTGRES_DB
-                  optional: true
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
@@ -104,6 +102,51 @@ spec:
                   name: agent-secrets
                   key: GOOGLE_APPLICATION_CREDENTIALS_CONTENT
                   optional: true
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: REDIS_PORT
+            - name: REDIS_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: REDIS_DB
+            - name: REDIS_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: REDIS_MAX_CONNECTIONS
+            - name: OTEL_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: OTEL_ENABLED
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: OTEL_SERVICE_NAME
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_TRACES_EXPORTER
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: OTEL_TRACES_EXPORTER
+            - name: OTEL_METRICS_EXPORTER
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: OTEL_METRICS_EXPORTER
             - name: SSL_KEYFILE
               valueFrom:
                 secretKeyRef:

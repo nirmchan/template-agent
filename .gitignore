@@ -190,9 +190,48 @@ bandit-report.json
 safety-report.json
 .safety-project.ini
 TASKS.md
-roadmap.md
+ROADMAP.md
 
-# Aegra / LangGraph Platform
-deep-agents-ui/
+# LangGraph Platform (local dev)
 .langgraph/
 langgraph-api-data/
+
+# Development infrastructure data
+redis_data/
+dump.rdb
+langfuse_data/
+jaeger_data/
+otel_data/
+
+# Cache directories (MR-69-77: Multi-layer caching)
+cache/
+.cache/
+diskcache/
+*.cache
+
+# Load test results (MR-33)
+load_test_results/
+*.jmx
+*.jtl
+locust_reports/
+locust.log
+
+# Test fixtures data (MR-34)
+tests/fixtures/data/
+tests/fixtures/*.db
+tests/fixtures/*.sqlite
+
+# Performance benchmarks (MR-42)
+benchmark_results/
+*.benchmark
+benchmarks/output/
+
+# Structured logs (MR-89: JSONL output)
+logs/
+*.jsonl
+*.log.json
+
+# Development environment
+docker-compose.override.yml
+.envrc
+.direnv/

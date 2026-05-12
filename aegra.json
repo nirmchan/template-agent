@@ -4,6 +4,9 @@
   "graphs": {
     "agent": "./aegra/graph.py:agent"
   },
+  "auth": {
+    "path": "./aegra/auth.py:auth"
+  },
   "env": ".env",
   "python_version": "3.12",
   "http": {

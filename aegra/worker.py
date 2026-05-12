@@ -1,8 +1,8 @@
-"""Worker pool configuration for aegra deployment (MR-25).
+"""Worker pool configuration for Aegra deployment.
 
-Defines settings for LangGraph Platform worker concurrency, task
-queues, and resource limits. These values are read by langgraph.json
-and by the aegra Docker entrypoint.
+Defines settings for Aegra worker concurrency, task
+queues, and resource limits. These values are read by aegra.json
+and by the Aegra container entrypoint.
 
 Environment variables:
     AEGRA_NUM_WORKERS: Number of worker processes (default: 4)

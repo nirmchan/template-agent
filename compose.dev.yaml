@@ -1,0 +1,135 @@
+## Full Development Stack
+## Includes all services needed for local development with observability
+##
+## Usage:
+##   make dev          - Start full stack
+##   make dev-down     - Stop stack
+##   make dev-clean    - Stop and remove all data
+##   make dev-logs     - Tail all logs
+##
+## Services:
+##   pgvector       - Postgres with pgvector for embeddings/checkpoints
+##   redis          - Cache and worker queue backend
+##   jaeger         - OpenTelemetry tracing backend
+##   template-agent - The agent application
+
+services:
+  # Postgres with pgvector extension for embeddings
+  pgvector:
+    image: ankane/pgvector
+    container_name: dev-pgvector
+    environment:
+      POSTGRES_DB: template_agent
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d template_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - dev-network
+
+  # Redis for caching and worker queues
+  redis:
+    image: redis:7-alpine
+    container_name: dev-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - dev-network
+
+  # Jaeger - OpenTelemetry tracing backend
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: dev-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    restart: unless-stopped
+    networks:
+      - dev-network
+
+  # Template Agent - Main application
+  template-agent:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: dev-agent
+    ports:
+      - "5002:5002"
+    env_file:
+      - .env
+    environment:
+      # Agent config
+      - AGENT_PORT=5002
+
+      # Database
+      - POSTGRES_HOST=pgvector
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=template_agent
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+
+      # Redis (Aegra broker for SSE streaming, crash recovery, scaling)
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_BROKER_ENABLED=true
+
+      # OpenTelemetry → Jaeger
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_SERVICE_NAME=template-agent
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+
+      # Development mode
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+
+    depends_on:
+      pgvector:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://0.0.0.0:5002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      # Mount source for hot reload during development
+      - ./deep_agent:/app/deep_agent:ro
+      - ./config:/app/config:ro
+    networks:
+      - dev-network
+
+volumes:
+  pgvector_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  dev-network:
+    driver: bridge

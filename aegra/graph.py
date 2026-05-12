@@ -1,22 +1,22 @@
-"""Graph entry point for LangGraph Platform (aegra) deployment.
+"""Graph entry point for Aegra deployment.
 
 This module builds and exports the compiled agent graph that
-``langgraph.json`` references. When served via ``langgraph dev`` or
-``langgraph up``, the LangGraph Platform imports ``agent`` from this
-module and exposes it through the standard LangGraph API.
+``aegra.json`` references. When served via ``aegra dev`` or
+``aegra serve``, Aegra imports ``agent`` from this module and
+exposes it through the standard LangGraph-compatible API.
 
 The exported graph is fully compatible with deep-agents-ui.
 
 Usage via CLI::
 
-    langgraph dev          # local dev server (no Docker)
-    langgraph up           # Docker-based server
+    aegra dev              # local dev server (hot reload)
+    aegra serve            # production server (no reload)
 
-The platform automatically provides:
+Aegra automatically provides:
 - Postgres-backed checkpointer (conversation persistence)
 - Thread/run/assistant management API
 - SSE streaming endpoint
-- Studio UI integration
+- Worker architecture with Redis job queue
 """
 
 import asyncio
@@ -40,35 +40,44 @@ os.environ.setdefault("PYTHONPATH", str(_REPO_ROOT))
 def _load_mcp_tools_sync() -> list:
     """Load MCP tools synchronously for module-level graph construction.
 
-    Falls back to an empty list if MCP servers are unreachable, allowing
-    the agent to start in degraded mode (no external tool access).
+    When called inside an already-running event loop (uvicorn/aegra),
+    offloads the async call to a separate thread with its own loop.
+    Falls back to an empty list if MCP servers are unreachable.
     """
+    import concurrent.futures
+
     from deep_agent.src.infrastructure.mcp import get_mcp_tools
 
     try:
-        return asyncio.run(get_mcp_tools())
+        asyncio.get_running_loop()
     except RuntimeError:
-        logger.warning("Event loop already running; skipping MCP tool loading")
-        return []
+        try:
+            return asyncio.run(get_mcp_tools())
+        except Exception:
+            logger.warning("MCP tools unavailable at startup", exc_info=True)
+            return []
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, get_mcp_tools())
+            return future.result(timeout=60)
     except Exception:
-        logger.warning(
-            "MCP tools unavailable — agent starts without external tools", exc_info=True
-        )
+        logger.warning("MCP tools unavailable at startup", exc_info=True)
         return []
 
 
 def build_agent():
-    """Build the deep agent graph for LangGraph Platform deployment.
+    """Build the deep agent graph for Aegra deployment.
 
     Loads the orchestrator configuration from ``config/agent/PROMPT.md``,
     creates the LLM, resolves MCP tools and subagents, then compiles
     everything into a single LangGraph ``CompiledStateGraph``.
 
-    The checkpointer is intentionally omitted — LangGraph Platform
+    The checkpointer is intentionally omitted — Aegra
     provides its own Postgres-backed checkpointer.
 
     Returns:
-        A compiled deep agent graph ready for LangGraph Platform serving.
+        A compiled deep agent graph ready for Aegra serving.
     """
     from deepagents import create_deep_agent
 
@@ -116,6 +125,6 @@ def build_agent():
 
 
 # -----------------------------------------------------------------
-# Exported graph — referenced by langgraph.json as "aegra/graph.py:agent"
+# Exported graph — referenced by aegra.json as "aegra/graph.py:agent"
 # -----------------------------------------------------------------
 agent = build_agent()
