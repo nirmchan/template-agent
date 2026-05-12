@@ -1,6 +1,6 @@
 """Tests for aegra.state module."""
 
-from aegra.state import (
+from deep_agent.aegra.state import (
     AegraMetadata,
     HealthStatus,
     make_health_status,

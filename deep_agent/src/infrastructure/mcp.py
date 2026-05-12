@@ -73,6 +73,8 @@ async def _connect_single_server(name: str, config: dict, timeout: int) -> list:
     """Connect to one MCP server and return its tools.
 
     Failures are logged and return empty list for fault isolation.
+    Auth rejections (401/403) are logged at info level since they are
+    expected when loading tools at startup without a user token.
     """
     try:
         async with asyncio.timeout(timeout):
@@ -82,9 +84,26 @@ async def _connect_single_server(name: str, config: dict, timeout: int) -> list:
         return tools
     except TimeoutError:
         logger.error(f"[{name}] timeout after {timeout}s ({config.get('url')})")
-    except Exception:
-        logger.error(f"[{name}] connection failed ({config.get('url')})", exc_info=True)
+    except Exception as exc:
+        if _is_auth_error(exc):
+            logger.info(f"[{name}] requires authentication — tools loaded per-request")
+        else:
+            logger.error(
+                f"[{name}] connection failed ({config.get('url')})", exc_info=True
+            )
     return []
+
+
+def _is_auth_error(exc: BaseException) -> bool:
+    """Check if an exception is caused by an HTTP 401/403 response."""
+    for sub in getattr(exc, "exceptions", [exc]):
+        msg = str(sub)
+        if "401" in msg or "403" in msg or "Unauthorized" in msg or "Forbidden" in msg:
+            return True
+        if hasattr(sub, "__cause__") and sub.__cause__:
+            if _is_auth_error(sub.__cause__):
+                return True
+    return False
 
 
 async def get_mcp_tools(
@@ -138,7 +157,10 @@ async def get_mcp_tools(
                 logger.warning(f"Duplicate tool '{tool.name}' skipped")
 
     if not tools:
-        logger.warning("All MCP servers failed to load tools")
+        if sso_token:
+            logger.warning("All MCP servers failed to load tools")
+        else:
+            logger.info("MCP tools deferred — no auth token at startup")
         return []
 
     logger.info(f"Loaded {len(tools)} MCP tool(s): {', '.join(seen)}")

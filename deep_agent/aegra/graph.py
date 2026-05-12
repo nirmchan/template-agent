@@ -36,6 +36,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 os.environ.setdefault("PYTHONPATH", str(_REPO_ROOT))
 
+from deep_agent.aegra.telemetry import setup_langfuse_tracing  # noqa: E402
+
 
 def _load_mcp_tools_sync() -> list:
     """Load MCP tools synchronously for module-level graph construction.
@@ -124,7 +126,10 @@ def build_agent():
     return compiled
 
 
-# -----------------------------------------------------------------
-# Exported graph — referenced by aegra.json as "aegra/graph.py:agent"
-# -----------------------------------------------------------------
+# Process-level Langfuse tracing — registers a global LangChain
+# callback hook so every graph invocation auto-traces without
+# wrapping the CompiledStateGraph (preserves aget_state etc.).
+setup_langfuse_tracing()
+
+# Exported graph — referenced by aegra.json as "deep_agent/aegra/graph.py:agent"
 agent = build_agent()

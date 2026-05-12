@@ -18,18 +18,18 @@ if _PROJECT_ROOT not in sys.path:
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: E402
 
-from aegra.converters import (  # noqa: E402
+from deep_agent.aegra.converters import (  # noqa: E402
     extract_final_response,
     langgraph_messages_to_dicts,
     stream_request_to_langgraph_input,
 )
-from aegra.serialization import (  # noqa: E402
+from deep_agent.aegra.serialization import (  # noqa: E402
     deserialize_state,
     serialize_state,
     state_from_json,
     state_to_json,
 )
-from aegra.state import (  # noqa: E402
+from deep_agent.aegra.state import (  # noqa: E402
     AegraMetadata,
     make_health_status,
     serialize_metadata,

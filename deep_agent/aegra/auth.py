@@ -119,7 +119,7 @@ def _build_dev_user() -> dict[str, Any]:
         "identity": DEV_USER_ID,
         "display_name": DEV_USERNAME,
         "permissions": ["read", "write", "admin"],
-        "is_authenticated": False,
+        "is_authenticated": True,
         "email": "dev@localhost",
         "encrypted_id": encrypt_user_id(DEV_USER_ID),
     }

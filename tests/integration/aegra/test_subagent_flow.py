@@ -10,8 +10,8 @@ Verifies the full orchestrator -> analyst -> publisher delegation chain:
 
 import pytest
 
-from aegra.serialization import serialize_state, deserialize_state
-from aegra.state import AegraMetadata, serialize_metadata
+from deep_agent.aegra.serialization import serialize_state, deserialize_state
+from deep_agent.aegra.state import AegraMetadata, serialize_metadata
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 

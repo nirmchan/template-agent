@@ -2,7 +2,7 @@
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from aegra.converters import (
+from deep_agent.aegra.converters import (
     extract_final_response,
     langgraph_messages_to_dicts,
     stream_request_to_langgraph_input,

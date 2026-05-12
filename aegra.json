@@ -2,10 +2,10 @@
   "$schema": "https://langgra.ph/schema.json",
   "dependencies": ["."],
   "graphs": {
-    "agent": "./aegra/graph.py:agent"
+    "agent": "./deep_agent/aegra/graph.py:agent"
   },
   "auth": {
-    "path": "./aegra/auth.py:auth"
+    "path": "./deep_agent/aegra/auth.py:auth"
   },
   "env": ".env",
   "python_version": "3.12",

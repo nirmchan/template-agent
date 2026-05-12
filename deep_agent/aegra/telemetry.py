@@ -1,17 +1,21 @@
-"""OpenTelemetry and Langfuse integration for aegra deployment (MR-23, MR-24).
+"""OpenTelemetry and Langfuse integration for aegra deployment.
 
 Provides:
+- Langfuse callback handler factory for LangChain tracing (v4 SDK)
+- Langfuse client accessor via ``get_langfuse_client()``
 - OTEL span creation and context propagation for graph execution
-- Langfuse callback handler factory for LangChain tracing
 - Structured metric recording for agent performance
 
-Environment variables:
-    OTEL_ENABLED: Enable OpenTelemetry (default: false)
-    OTEL_SERVICE_NAME: Service name for traces (default: template-agent-aegra)
-    OTEL_EXPORTER_OTLP_ENDPOINT: OTLP collector URL
+Environment variables (Langfuse — auto-read by v4 SDK):
     LANGFUSE_PUBLIC_KEY: Langfuse public key
     LANGFUSE_SECRET_KEY: Langfuse secret key
     LANGFUSE_BASE_URL: Langfuse server URL
+    LANGFUSE_TRACING_ENVIRONMENT: Environment tag (e.g. development, production)
+
+Environment variables (OpenTelemetry):
+    OTEL_ENABLED: Enable OpenTelemetry (default: false)
+    OTEL_SERVICE_NAME: Service name for traces (default: template-agent-aegra)
+    OTEL_EXPORTER_OTLP_ENDPOINT: OTLP collector URL
 """
 
 import logging
@@ -106,37 +110,126 @@ def trace_span(
             logger.info("span=%s duration_ms=%.1f attrs=%s", name, elapsed, ctx)
 
 
+# ---------------------------------------------------------------------------
+# Langfuse v4 integration
+# ---------------------------------------------------------------------------
+
+_langfuse_tracing_initialized = False
+
+
+def _langfuse_configured() -> bool:
+    """Return True if the minimum Langfuse credentials are present."""
+    return bool(
+        os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
+    )
+
+
+def setup_langfuse_tracing() -> None:
+    """Register Langfuse as a global LangChain callback via configure hook.
+
+    Uses ``register_configure_hook`` — the same mechanism LangSmith uses to
+    auto-inject its tracer.  When ``LANGFUSE_PUBLIC_KEY`` is set in the
+    environment, LangChain's ``CallbackManager.configure()`` auto-creates a
+    fresh ``CallbackHandler()`` for every run (each handler reads credentials
+    from ``LANGFUSE_SECRET_KEY`` / ``LANGFUSE_BASE_URL`` env vars).
+
+    This must be called **once** at process startup (before any graph
+    invocations).  Calling it multiple times is safe — subsequent calls
+    are no-ops.
+
+    The exported graph stays a pure ``CompiledStateGraph`` (no
+    ``with_config`` wrapping), so Aegra state-management endpoints
+    (``aget_state``, ``aupdate_state``) continue to work.
+    """
+    global _langfuse_tracing_initialized
+    if _langfuse_tracing_initialized:
+        return
+    _langfuse_tracing_initialized = True
+
+    if not _langfuse_configured():
+        logger.info("Langfuse credentials not set — auto-tracing disabled")
+        return
+
+    try:
+        import contextvars
+
+        from langchain_core.tracers.context import register_configure_hook
+        from langfuse.langchain import CallbackHandler
+
+        _langfuse_ctx_var: contextvars.ContextVar = contextvars.ContextVar(
+            "langfuse_handler", default=None
+        )
+
+        register_configure_hook(
+            _langfuse_ctx_var,
+            True,
+            CallbackHandler,
+            env_var="LANGFUSE_PUBLIC_KEY",
+        )
+        logger.info("Langfuse auto-tracing registered for all LangChain runs")
+    except ImportError:
+        logger.warning(
+            "langfuse or langchain_core not available — auto-tracing disabled"
+        )
+    except Exception:
+        logger.warning("Failed to register Langfuse tracing hook", exc_info=True)
+
+
+def get_langfuse_client():
+    """Return the Langfuse singleton client (v4), or None if unconfigured.
+
+    Uses ``get_client()`` which auto-reads ``LANGFUSE_PUBLIC_KEY``,
+    ``LANGFUSE_SECRET_KEY``, and ``LANGFUSE_BASE_URL`` from the environment.
+    """
+    if not _langfuse_configured():
+        return None
+
+    try:
+        from langfuse import get_client
+
+        return get_client()
+    except ImportError:
+        logger.warning("langfuse package not installed — Langfuse tracing disabled")
+        return None
+    except Exception:
+        logger.warning("Failed to initialize Langfuse client", exc_info=True)
+        return None
+
+
 def create_langfuse_handler(
     *,
-    trace_name: str = "aegra-agent",
     session_id: str | None = None,
     user_id: str | None = None,
-    metadata: dict[str, Any] | None = None,
+    tags: list[str] | None = None,
 ):
-    """Create a Langfuse callback handler for LangChain tracing.
+    """Create a Langfuse CallbackHandler for LangChain/LangGraph tracing.
+
+    In v4 the handler auto-reads credentials from environment variables
+    (``LANGFUSE_PUBLIC_KEY``, ``LANGFUSE_SECRET_KEY``, ``LANGFUSE_BASE_URL``).
+    Per-request attributes like ``user_id`` and ``session_id`` can also be
+    passed via metadata fields in the invoke config::
+
+        config={"metadata": {"langfuse_user_id": "...", "langfuse_session_id": "..."}}
 
     Returns None if Langfuse credentials are not configured, allowing
     callers to skip tracing gracefully.
     """
-    public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
-    secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
-    base_url = os.environ.get("LANGFUSE_BASE_URL")
-
-    if not public_key or not secret_key:
+    if not _langfuse_configured():
         return None
 
     try:
         from langfuse.langchain import CallbackHandler
 
-        return CallbackHandler(
-            public_key=public_key,
-            secret_key=secret_key,
-            host=base_url,
-            trace_name=trace_name,
-            session_id=session_id,
-            user_id=user_id,
-            metadata=metadata or {},
-        )
+        handler = CallbackHandler()
+
+        if session_id is not None:
+            handler.session_id = session_id
+        if user_id is not None:
+            handler.user_id = user_id
+        if tags:
+            handler.tags = tags
+
+        return handler
     except ImportError:
         logger.warning("langfuse package not installed — Langfuse tracing disabled")
         return None

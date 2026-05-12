@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir uv && \
 USER 65532
 
 COPY deep_agent /app/deep_agent
-COPY aegra /app/aegra
 COPY config /app/config
 COPY aegra.json /app/aegra.json
 

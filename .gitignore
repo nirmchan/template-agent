@@ -192,6 +192,9 @@ safety-report.json
 TASKS.md
 ROADMAP.md
 
+# Demo environment (make demo)
+.demo/
+
 # LangGraph Platform (local dev)
 .langgraph/
 langgraph-api-data/

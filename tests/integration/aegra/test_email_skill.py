@@ -8,8 +8,8 @@ Verifies that the agent correctly:
 
 import pytest
 
-from aegra.converters import stream_request_to_langgraph_input
-from aegra.serialization import serialize_message
+from deep_agent.aegra.converters import stream_request_to_langgraph_input
+from deep_agent.aegra.serialization import serialize_message
 from langchain_core.messages import AIMessage, HumanMessage
 
 

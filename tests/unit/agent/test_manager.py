@@ -60,17 +60,8 @@ class TestAgentManager:
         token_handler = agent_manager.handlers["messages"]
         assert token_handler.tracker is agent_manager.tracker
 
-    def test_manager_with_langfuse_client(self):
-        """Test manager initialization with Langfuse client."""
-        from unittest.mock import MagicMock
-
-        mock_client = MagicMock()
-        manager = AgentManager(langfuse_client=mock_client)
-
-        assert manager.langfuse_client is mock_client
-
-    def test_manager_without_langfuse_client(self):
-        """Test manager initialization without Langfuse client."""
+    def test_manager_without_sso_token(self):
+        """Test manager initialization without optional tokens."""
         manager = AgentManager()
-
-        assert manager.langfuse_client is None
+        assert manager.redhat_sso_token is None
+        assert manager.refresh_token is None

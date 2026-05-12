@@ -12,8 +12,11 @@ uses mocked tool responses via fixtures.
 
 import pytest
 
-from aegra.converters import extract_final_response, stream_request_to_langgraph_input
-from aegra.serialization import deserialize_message, serialize_message
+from deep_agent.aegra.converters import (
+    extract_final_response,
+    stream_request_to_langgraph_input,
+)
+from deep_agent.aegra.serialization import deserialize_message, serialize_message
 from langchain_core.messages import AIMessage, HumanMessage
 
 

@@ -194,14 +194,14 @@ docker run -p 2024:8123 --env-file .env template-agent-aegra
 #### Aegra directory structure
 
 ```
-aegra/
-├── __init__.py       # Package metadata
-├── graph.py          # Graph builder + exported agent (langgraph.json entry)
-├── state.py          # Extended state schema and health types
-├── converters.py     # State conversion utilities
-└── nodes.py          # Error-handling node decorators
-langgraph.json        # LangGraph Platform configuration
-compose.aegra.yaml    # Docker Compose for aegra + deep-agents-ui
+deep_agent/
+└── aegra/
+    ├── __init__.py       # Package metadata
+    ├── graph.py          # Graph builder + exported agent (aegra.json entry)
+    ├── state.py          # Extended state schema and health types
+    ├── converters.py     # State conversion utilities
+    └── nodes.py          # Error-handling node decorators
+aegra.json                # Aegra Platform configuration
 ```
 
 ## Links

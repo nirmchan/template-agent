@@ -15,15 +15,14 @@ Classes:
 """
 
 from collections.abc import AsyncGenerator
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langfuse import Langfuse
-from langfuse.langchain import CallbackHandler
 from langgraph.types import Command
 
+from deep_agent.aegra.telemetry import create_langfuse_handler
 from deep_agent.src.agent.factory import get_deep_agent
 from deep_agent.src.schema import StreamRequest
 from deep_agent.src.settings import settings
@@ -53,18 +52,15 @@ class AgentManager:
         self,
         redhat_sso_token: str | None = None,
         refresh_token: str | None = None,
-        langfuse_client: Optional[Langfuse] = None,
     ):
         """Initialize the AgentManager.
 
         Args:
             redhat_sso_token: Optional SSO token for MCP authentication.
             refresh_token: Optional refresh token for downstream propagation.
-            langfuse_client: Optional Langfuse client for tracing (from app.state).
         """
         self.redhat_sso_token = redhat_sso_token
         self.refresh_token = refresh_token
-        self.langfuse_client = langfuse_client
 
         # Initialize streaming components
         self.deduplicator = MessageDeduplicator()
@@ -166,25 +162,21 @@ class AgentManager:
         if not request.user_id:
             logger.info("No user_id provided, using 'anonymous'")
 
-        # Configure callbacks
         callbacks = []
 
-        # Langfuse tracing (optional)
-        # Note: CallbackHandler must be created per request (tracks trace-specific state)
-        # We inject the shared Langfuse client to avoid creating a new one each time
-        if self.langfuse_client:
-            langfuse_handler = CallbackHandler(trace_context={"trace_id": trace_id})
-            # Inject the shared client instead of letting it create a new one
-            langfuse_handler.client = self.langfuse_client
+        langfuse_handler = create_langfuse_handler(
+            session_id=effective_session_id,
+            user_id=effective_user_id,
+            tags=["template-agent"],
+        )
+        if langfuse_handler:
             callbacks.append(langfuse_handler)
 
         config = RunnableConfig(
             configurable={
                 "thread_id": effective_thread_id,
-                "user_id": effective_user_id,  # For checkpoint queries
-                "session_id": effective_session_id,  # For checkpoint queries
-                "langfuse_user_id": effective_user_id,  # For Langfuse integration
-                "langfuse_session_id": effective_session_id,  # For Langfuse integration
+                "user_id": effective_user_id,
+                "session_id": effective_session_id,
                 "run_id": run_id,
                 "trace_id": trace_id,
             },
@@ -194,7 +186,8 @@ class AgentManager:
             metadata={
                 "run_id": run_id,
                 "trace_id": trace_id,
-                "session_id": effective_session_id,
+                "langfuse_user_id": effective_user_id,
+                "langfuse_session_id": effective_session_id,
             },
         )
 

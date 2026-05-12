@@ -1,23 +1,23 @@
-## Full Development Stack
-## Includes all services needed for local development with observability
+## Demo Stack: Agent + MCP Server with SSO Authentication
+## Demonstrates end-to-end SSO token propagation: User → Agent → MCP Server
 ##
 ## Usage:
-##   make dev          - Start full stack
-##   make dev-down     - Stop stack
-##   make dev-clean    - Stop and remove all data
-##   make dev-logs     - Tail all logs
+##   make demo          - Clone MCP server, configure, start everything
+##   make demo-down     - Stop demo stack
+##   make demo-clean    - Stop and remove all data + cloned repo
+##   make demo-logs     - Tail all logs
 ##
 ## Services:
-##   pgvector       - Postgres with pgvector for embeddings/checkpoints
-##   redis          - Cache and worker queue backend
-##   jaeger         - OpenTelemetry tracing backend
-##   template-agent - The agent application
+##   pgvector              - Shared Postgres (agent checkpoints + MCP token storage)
+##   redis                 - Aegra broker (SSE streaming, job queue)
+##   jaeger                - OpenTelemetry tracing
+##   template-mcp-server   - MCP server with SSO auth (port 5001)
+##   template-agent        - Agent with SSO auth + token propagation (port 5002)
 
 services:
-  # Postgres with pgvector extension for embeddings
   pgvector:
     image: ankane/pgvector
-    container_name: dev-pgvector
+    container_name: demo-pgvector
     environment:
       POSTGRES_DB: template_agent
       POSTGRES_USER: postgres
@@ -25,7 +25,8 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgvector_data:/var/lib/postgresql/data
+      - demo_pgvector_data:/var/lib/postgresql/data
+      - ./.demo/init-databases.sql:/docker-entrypoint-initdb.d/10-create-databases.sql:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d template_agent"]
@@ -34,17 +35,16 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - dev-network
+      - demo-network
 
-  # Redis for caching and worker queues
   redis:
     image: redis:7-alpine
-    container_name: dev-redis
+    container_name: demo-redis
     command: redis-server --appendonly yes
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - demo_redis_data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -52,65 +52,86 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - dev-network
+      - demo-network
 
-  # Jaeger - OpenTelemetry tracing backend
   jaeger:
     image: jaegertracing/all-in-one:latest
-    container_name: dev-jaeger
+    container_name: demo-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"  # Jaeger UI
-      - "4317:4317"    # OTLP gRPC
-      - "4318:4318"    # OTLP HTTP
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
     restart: unless-stopped
     networks:
-      - dev-network
+      - demo-network
 
-  # Template Agent - Main application
+  template-mcp-server:
+    build:
+      context: .demo/template-mcp-server
+      dockerfile: Containerfile
+    container_name: demo-mcp-server
+    ports:
+      - "5001:5001"
+    env_file:
+      - .demo/mcp-server.env
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=5001
+      - ENABLE_AUTH=True
+      - POSTGRES_HOST=pgvector
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=mcp_server
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "http://0.0.0.0:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - demo-network
+
   template-agent:
     build:
       context: .
       dockerfile: Containerfile
-    container_name: dev-agent
+    container_name: demo-agent
     ports:
       - "5002:5002"
     env_file:
       - .env
     environment:
-      # Agent config
       - AGENT_PORT=5002
-
-      # Database
       - POSTGRES_HOST=pgvector
       - POSTGRES_PORT=5432
       - POSTGRES_DB=template_agent
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-
-      # Redis (Aegra broker for SSE streaming, crash recovery, scaling)
       - REDIS_URL=redis://redis:6379/0
       - REDIS_BROKER_ENABLED=true
-
-      # OpenTelemetry → Jaeger
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_SERVICE_NAME=template-agent
       - OTEL_TRACES_EXPORTER=otlp
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
-
-      # Development mode
       - ENVIRONMENT=development
       - ENV_MODE=PRODUCTION
       - NO_COLOR=1
       - LOG_LEVEL=DEBUG
-
     depends_on:
       pgvector:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      template-mcp-server:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -120,18 +141,18 @@ services:
       retries: 5
       start_period: 30s
     volumes:
-      # Mount source for hot reload during development
       - ./deep_agent:/app/deep_agent:ro
       - ./config:/app/config:ro
+      - ./.demo/mcp.json:/app/config/agent/mcp.json:ro
     networks:
-      - dev-network
+      - demo-network
 
 volumes:
-  pgvector_data:
+  demo_pgvector_data:
     driver: local
-  redis_data:
+  demo_redis_data:
     driver: local
 
 networks:
-  dev-network:
+  demo-network:
     driver: bridge
