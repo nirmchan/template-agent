@@ -18,6 +18,7 @@ Required env vars:
 Optional env vars:
     SSO_CLIENT_SECRET: OAuth2 client secret
     SSO_JWKS_URI: Explicit JWKS URI (skips OIDC discovery)
+    SSO_JWT_AUDIENCE: Expected JWT audience (defaults to SSO_CLIENT_ID)
     ENABLE_USER_ID_ENCRYPTION: Encrypt user IDs in logs/traces (default: false)
     USER_ID_ENCRYPTION_KEY: 32-byte hex key for user ID encryption
 """
@@ -42,6 +43,7 @@ SSO_CLIENT_ID = os.environ.get("SSO_CLIENT_ID", "")
 SSO_CLIENT_SECRET = os.environ.get("SSO_CLIENT_SECRET", "")
 SSO_JWKS_URI = os.environ.get("SSO_JWKS_URI", "")
 SSO_JWT_ALGORITHMS = os.environ.get("SSO_JWT_ALGORITHMS", "RS256,ES256").split(",")
+SSO_JWT_AUDIENCE = os.environ.get("SSO_JWT_AUDIENCE", "")
 
 DEV_USERNAME = os.environ.get("SSO_DEV_USERNAME", "John Doe")
 DEV_USER_ID = os.environ.get("SSO_DEV_USER_ID", "dev-user")
@@ -105,8 +107,10 @@ def _decode_token(token: str) -> dict[str, Any]:
         "algorithms": [a.strip() for a in SSO_JWT_ALGORITHMS],
         "options": decode_options,
     }
-    if SSO_CLIENT_ID:
-        kwargs["audience"] = SSO_CLIENT_ID
+    if SSO_JWT_AUDIENCE:
+        kwargs["audience"] = SSO_JWT_AUDIENCE
+    else:
+        decode_options["verify_aud"] = False
     if SSO_ISSUER_URL:
         kwargs["issuer"] = SSO_ISSUER_URL
 

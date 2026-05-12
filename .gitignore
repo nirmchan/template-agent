@@ -142,6 +142,9 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# ruff
+.ruff_cache/
 .dmypy.json
 dmypy.json
 
@@ -233,6 +236,9 @@ benchmarks/output/
 logs/
 *.jsonl
 *.log.json
+
+# Playwright MCP artifacts
+.playwright-mcp/
 
 # Development environment
 docker-compose.override.yml

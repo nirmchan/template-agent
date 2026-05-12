@@ -1,16 +1,15 @@
-## Demo Stack: Agent + MCP Server with SSO Authentication
-## Demonstrates end-to-end SSO token propagation: User → Agent → MCP Server
+## Demo Stack: UI + Agent + MCP Server with SSO Authentication
+## Demonstrates end-to-end SSO flow: UI → Agent → MCP Server
 ##
 ## Usage:
-##   make demo          - Clone MCP server, configure, start everything
-##   make demo-down     - Stop demo stack
-##   make demo-clean    - Stop and remove all data + cloned repo
-##   make demo-logs     - Tail all logs
+##   make demo          - Clone repos, configure, start everything
+##   make clean         - Stop stack, remove data, cloned repos, and build artifacts
 ##
 ## Services:
 ##   pgvector              - Shared Postgres (agent checkpoints + MCP token storage)
-##   redis                 - Aegra broker (SSE streaming, job queue)
+##   redis                 - Aegra broker (SSE streaming, job queue) + UI sessions
 ##   jaeger                - OpenTelemetry tracing
+##   template-ui           - React/Fastify frontend with SSO auth (port 8080)
 ##   template-mcp-server   - MCP server with SSO auth (port 5001)
 ##   template-agent        - Agent with SSO auth + token propagation (port 5002)
 
@@ -144,6 +143,36 @@ services:
       - ./deep_agent:/app/deep_agent:ro
       - ./config:/app/config:ro
       - ./.demo/mcp.json:/app/config/agent/mcp.json:ro
+    networks:
+      - demo-network
+
+  template-ui:
+    build:
+      context: .demo/template-ui
+      dockerfile: Containerfile
+    container_name: demo-ui
+    ports:
+      - "8080:8080"
+    env_file:
+      - .demo/ui.env
+    environment:
+      - PORT=8080
+      - AGENT_HOST=http://template-agent:5002
+      - AUTH_ENABLED=true
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      template-agent:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://0.0.0.0:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
     networks:
       - demo-network
 
