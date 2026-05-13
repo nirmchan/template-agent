@@ -10,10 +10,15 @@ Why this exists:
     and external MCP-compatible services.
 
 Functions:
+    refresh_access_token: Exchange a refresh token for a fresh access token
     get_mcp_tools: Connect to all MCP servers and retrieve their tools
 """
 
 import asyncio
+import base64
+import json
+import os
+import time
 
 import httpx
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -23,6 +28,91 @@ from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
 logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
+
+_SSO_TOKEN_URL = ""
+
+
+def _get_token_endpoint() -> str:
+    """Derive the OIDC token endpoint from SSO_ISSUER_URL (cached)."""
+    global _SSO_TOKEN_URL  # noqa: PLW0603
+    if _SSO_TOKEN_URL:
+        return _SSO_TOKEN_URL
+    issuer = os.environ.get("SSO_ISSUER_URL", "").rstrip("/")
+    if issuer:
+        _SSO_TOKEN_URL = f"{issuer}/protocol/openid-connect/token"
+    return _SSO_TOKEN_URL
+
+
+def _jwt_exp(token: str) -> float:
+    """Extract ``exp`` from a JWT payload without cryptographic validation."""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (4 - len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        return float(data.get("exp", 0))
+    except Exception:
+        return 0.0
+
+
+async def refresh_access_token(
+    access_token: str,
+    refresh_token: str | None,
+) -> str:
+    """Return a fresh access token, using the refresh_token grant if needed.
+
+    If the current ``access_token`` has more than 30 seconds of remaining
+    lifetime it is returned as-is.  Otherwise, if a ``refresh_token`` and
+    the OIDC token endpoint are available, the token is refreshed via the
+    standard ``refresh_token`` grant.
+
+    This should be called **once in the graph factory**, before passing
+    the token to ``get_mcp_tools()``, so the MCP client always receives
+    a token that will survive both tool discovery and tool execution.
+
+    Args:
+        access_token: Current JWT access token (may be expired).
+        refresh_token: OIDC refresh token (may be ``None`` or ``""``).
+
+    Returns:
+        A valid access token (refreshed if necessary, original if refresh
+        is unavailable or fails).
+    """
+    remaining = _jwt_exp(access_token) - time.time()
+    if remaining > 30:
+        logger.debug("Access token still valid (%.0fs remaining)", remaining)
+        return access_token
+
+    if not refresh_token:
+        logger.warning(
+            "Access token near expiry (%.0fs) but no refresh_token available", remaining
+        )
+        return access_token
+
+    token_url = _get_token_endpoint()
+    client_id = os.environ.get("SSO_CLIENT_ID", "")
+    if not token_url or not client_id:
+        logger.warning("Cannot refresh token — SSO_ISSUER_URL or SSO_CLIENT_ID not set")
+        return access_token
+
+    logger.info("Refreshing SSO access token (%.0fs remaining)", remaining)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": client_id,
+                    "refresh_token": refresh_token,
+                },
+            )
+            resp.raise_for_status()
+            new_token = resp.json()["access_token"]
+            new_remaining = _jwt_exp(new_token) - time.time()
+            logger.info("SSO token refreshed (%.0fs lifetime)", new_remaining)
+            return new_token
+    except Exception:
+        logger.error("Token refresh failed — using original token", exc_info=True)
+        return access_token
 
 
 def _get_server_configs() -> dict[str, dict]:
@@ -37,14 +127,16 @@ def _get_server_configs() -> dict[str, dict]:
 def _build_server_config(
     entry: dict,
     sso_token: str | None,
-    refresh_token: str | None = None,
 ) -> dict:
     """Build MultiServerMCPClient config from server definition.
 
+    The caller is expected to pass a **fresh** ``sso_token`` (see
+    ``refresh_access_token``).  This function simply wires it into the
+    ``Authorization`` header for the MCP connection.
+
     Args:
         entry: Server definition with url, auth, ssl_verify, transport.
-        sso_token: Optional bearer token for authentication.
-        refresh_token: Optional refresh token for downstream propagation.
+        sso_token: Optional bearer token (should already be refreshed).
 
     Returns:
         Config dict for MultiServerMCPClient.
@@ -52,10 +144,8 @@ def _build_server_config(
     headers: dict[str, str] = {}
     if entry.get("auth", True) and sso_token:
         headers["Authorization"] = f"Bearer {sso_token}"
-        if refresh_token:
-            headers["X-Refresh-Token"] = refresh_token
 
-    config = {
+    config: dict = {
         "url": entry["url"],
         "transport": entry.get("transport", "streamable_http"),
         "headers": headers,
@@ -134,19 +224,20 @@ def _is_connection_error(exc: BaseException) -> bool:
 
 async def get_mcp_tools(
     sso_token: str | None = None,
-    refresh_token: str | None = None,
 ) -> list:
     """Connect to MCP server(s) and retrieve available tools.
 
     Loads server definitions from ``config/mcp.json``, connects to
     each enabled server in parallel, and returns a deduplicated flat list.
 
+    The ``sso_token`` should already be **refreshed** by the caller via
+    ``refresh_access_token()`` before calling this function.
+
     Connection failures are logged but do not raise exceptions, ensuring
     the application continues with an empty tool list.
 
     Args:
-        sso_token: Optional SSO token for authentication.
-        refresh_token: Optional refresh token for downstream propagation.
+        sso_token: Optional SSO token for authentication (pre-refreshed).
 
     Returns:
         List of available MCP tools (empty list if all connections fail).
@@ -165,7 +256,7 @@ async def get_mcp_tools(
         *[
             _connect_single_server(
                 name=name,
-                config=_build_server_config(entry, sso_token, refresh_token),
+                config=_build_server_config(entry, sso_token),
                 timeout=entry.get("timeout", 30),
                 required=has_auth,
             )

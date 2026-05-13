@@ -63,8 +63,12 @@ async def get_deep_agent(
     # Initialize the language model
     model = create_model(model_name=model_name)
 
-    # Initialize MCP client and get tools
-    mcp_tools = await get_mcp_tools(sso_token=sso_token, refresh_token=refresh_token)
+    if sso_token:
+        from deep_agent.src.infrastructure.mcp import refresh_access_token
+
+        sso_token = await refresh_access_token(sso_token, refresh_token)
+
+    mcp_tools = await get_mcp_tools(sso_token=sso_token)
 
     # Resolve tools from tool names in frontmatter
     tools = agent_config.resolve_tools(tool_names, mcp_tools, agent_name=agent_name)

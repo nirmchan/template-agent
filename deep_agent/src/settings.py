@@ -66,6 +66,10 @@ class Settings(BaseSettings):
         default="INFO", json_schema_extra={"env": "PYTHON_LOG_LEVEL"}
     )
 
+    MAX_OUTPUT_TOKENS: int = Field(
+        default=8192, json_schema_extra={"env": "MAX_OUTPUT_TOKENS"}
+    )
+
     # Database Configuration
     POSTGRES_USER: str = Field(
         default="pgvector", json_schema_extra={"env": "POSTGRES_USER"}

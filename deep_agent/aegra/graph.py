@@ -1,36 +1,48 @@
-"""Graph entry point for Aegra deployment.
+"""Graph factory for Aegra deployment.
 
-This module builds and exports the compiled agent graph that
-``aegra.json`` references. When served via ``aegra dev`` or
-``aegra serve``, Aegra imports ``agent`` from this module and
-exposes it through the standard LangGraph-compatible API.
+This module exports an **async graph factory** that Aegra invokes
+**per-request**.  The factory extracts the calling user's SSO token
+from the ``ServerRuntime`` and passes it to MCP servers, so tool
+calls are authenticated end-to-end with the user's own credentials.
 
-The exported graph is fully compatible with deep-agents-ui.
+``aegra.json`` references this as::
 
-Usage via CLI::
+    "graphs": {"agent": "./deep_agent/aegra/graph.py:agent"}
 
-    aegra dev              # local dev server (hot reload)
-    aegra serve            # production server (no reload)
+Aegra detects the ``ServerRuntime`` parameter and classifies
+``agent`` as a 1-param runtime factory.  On each request:
+
+1. The auth handler validates the JWT and stores ``access_token``
+   and ``refresh_token`` on the ``User`` model.
+2. Aegra builds a ``ServerRuntime(user=user, …)`` and calls
+   ``agent(runtime)`` → coroutine → ``await``-ed → compiled graph.
+3. The graph is injected with Aegra's Postgres checkpointer/store
+   before being used for the run.
+
+For schema-only calls (LangGraph Studio, assistant listing) the
+factory is invoked with ``user=None``; MCP tools are skipped and
+the graph is built with only built-in tools.
 
 Aegra automatically provides:
+
 - Postgres-backed checkpointer (conversation persistence)
 - Thread/run/assistant management API
 - SSE streaming endpoint
 - Worker architecture with Redis job queue
 """
 
-import asyncio
 import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
+
+from langgraph_sdk.runtime import ServerRuntime
 
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Ensure repo root is on sys.path so deep_agent can be imported
-# when langgraph loads this module outside the normal app context.
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
@@ -38,68 +50,56 @@ os.environ.setdefault("PYTHONPATH", str(_REPO_ROOT))
 
 from deep_agent.aegra.telemetry import setup_langfuse_tracing  # noqa: E402
 
-
-def _load_mcp_tools_sync() -> list:
-    """Load MCP tools synchronously for module-level graph construction.
-
-    When called inside an already-running event loop (uvicorn/aegra),
-    offloads the async call to a separate thread with its own loop.
-    Falls back to an empty list if MCP servers are unreachable.
-    """
-    import concurrent.futures
-
-    from deep_agent.src.infrastructure.mcp import get_mcp_tools
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        try:
-            return asyncio.run(get_mcp_tools())
-        except Exception:
-            logger.warning("MCP tools unavailable at startup", exc_info=True)
-            return []
-
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, get_mcp_tools())
-            return future.result(timeout=60)
-    except Exception:
-        logger.warning("MCP tools unavailable at startup", exc_info=True)
-        return []
+setup_langfuse_tracing()
 
 
-def build_agent():
-    """Build the deep agent graph for Aegra deployment.
+async def agent(runtime: ServerRuntime) -> Any:
+    """Async graph factory — invoked per-request by Aegra.
 
-    Loads the orchestrator configuration from ``config/agent/PROMPT.md``,
-    creates the LLM, resolves MCP tools and subagents, then compiles
-    everything into a single LangGraph ``CompiledStateGraph``.
+    Extracts the user's SSO token from the runtime and forwards it
+    to MCP servers so external tool calls carry the user's identity.
 
-    The checkpointer is intentionally omitted — Aegra
-    provides its own Postgres-backed checkpointer.
+    When ``runtime.user`` is ``None`` (schema-extraction calls), MCP
+    tools are skipped and the graph is built with built-in tools only.
+
+    Args:
+        runtime: Aegra ``ServerRuntime`` containing the authenticated
+            ``User`` with ``access_token`` / ``refresh_token`` extras.
 
     Returns:
-        A compiled deep agent graph ready for Aegra serving.
+        A compiled deep-agent graph (``CompiledStateGraph``).
     """
     from deepagents import create_deep_agent
 
     from deep_agent.src.agent.config import agent_config
     from deep_agent.src.agent.llm import create_model
     from deep_agent.src.infrastructure.backend import get_backend
+    from deep_agent.src.infrastructure.mcp import get_mcp_tools, refresh_access_token
     from deep_agent.src.infrastructure.subagents import load_subagents
 
-    orchestrator_cfg = agent_config.get_orchestrator_config()
+    user = getattr(runtime, "user", None)
+    sso_token = getattr(user, "access_token", None) if user else None
+    refresh_token = getattr(user, "refresh_token", None) if user else None
 
+    if sso_token:
+        sso_token = await refresh_access_token(sso_token, refresh_token)
+
+    orchestrator_cfg = agent_config.get_orchestrator_config()
     agent_name = orchestrator_cfg.get("name", "orchestrator")
     model_name = orchestrator_cfg.get("model", "gemini-3.1-pro-preview")
     system_prompt = orchestrator_cfg.get("body", "")
     skill_paths = orchestrator_cfg.get("skill_paths", [])
     tool_names = orchestrator_cfg.get("tools", [])
 
-    logger.info("Building aegra agent '%s' with model '%s'", agent_name, model_name)
+    logger.info(
+        "Building agent '%s' (model=%s, mcp_auth=%s)",
+        agent_name,
+        model_name,
+        bool(sso_token),
+    )
 
     model = create_model(model_name=model_name)
-    mcp_tools = _load_mcp_tools_sync()
+    mcp_tools = await get_mcp_tools(sso_token=sso_token)
     tools = agent_config.resolve_tools(tool_names, mcp_tools, agent_name=agent_name)
     subagents = load_subagents(tools=mcp_tools)
     backend = get_backend()
@@ -117,19 +117,10 @@ def build_agent():
     tool_count = len(tools)
     sub_count = len(subagents) if subagents else 0
     logger.info(
-        "Aegra agent ready: %d tool(s), %d subagent(s), skills=%s",
+        "Agent ready: %d tool(s), %d subagent(s), mcp_auth=%s",
         tool_count,
         sub_count,
-        skill_paths,
+        bool(sso_token),
     )
 
     return compiled
-
-
-# Process-level Langfuse tracing — registers a global LangChain
-# callback hook so every graph invocation auto-traces without
-# wrapping the CompiledStateGraph (preserves aget_state etc.).
-setup_langfuse_tracing()
-
-# Exported graph — referenced by aegra.json as "deep_agent/aegra/graph.py:agent"
-agent = build_agent()

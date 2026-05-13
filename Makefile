@@ -209,7 +209,7 @@ demo: ## Start demo: UI + agent + MCP server with SSO auth (end-to-end)
 	@# --- Step 6: Generate Postgres init script (creates mcp_server DB) ---
 	@echo "CREATE DATABASE mcp_server;" > $(DEMO_DIR)/init-databases.sql
 	@# --- Step 7: Generate demo MCP config (container hostname) ---
-	@echo '{"mcpServers":{"template-mcp-server":{"url":"http://template-mcp-server:5001/mcp/","transport":"streamable_http","enabled":true,"auth":true,"ssl_verify":false,"timeout":30}}}' | python3 -m json.tool > $(DEMO_DIR)/mcp.json
+	@echo '{"mcpServers":{"template-mcp-server":{"url":"http://template-mcp-server:5001/mcp","transport":"streamable_http","enabled":true,"auth":true,"ssl_verify":false,"timeout":30}}}' | python3 -m json.tool > $(DEMO_DIR)/mcp.json
 	@# --- Step 8: Stop dev stack if running ---
 	@podman-compose -f compose.dev.yaml down 2>/dev/null || true
 	@# --- Step 9: Start demo stack ---

@@ -25,6 +25,8 @@ from deep_agent.utils.pylogger import get_python_logger
 
 logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 
+_DEFAULT_MAX_OUTPUT_TOKENS = settings.MAX_OUTPUT_TOKENS
+
 # Supported Gemini models on Vertex AI
 GEMINI_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.1-pro-preview"]
 
@@ -37,12 +39,14 @@ CLAUDE_MODELS = [
 def create_model(
     model_name: str,
     temperature: float = 0.0,
+    max_output_tokens: int | None = None,
 ) -> Union[ChatGoogleGenerativeAI, ChatAnthropicVertex]:
     """Create a Vertex AI model (Gemini or Claude).
 
     Args:
         model_name: Model name from GEMINI_MODELS or CLAUDE_MODELS
         temperature: Model temperature (default: 0.0)
+        max_output_tokens: Maximum tokens in model response (default: 8192)
 
     Returns:
         Configured model instance
@@ -50,9 +54,10 @@ def create_model(
     if not model_name or not model_name.strip():
         raise ValueError("model_name cannot be empty")
 
+    max_output_tokens = max_output_tokens or _DEFAULT_MAX_OUTPUT_TOKENS
+
     credentials, project = get_service_account_credentials()
 
-    # Detect model type based on model lists
     is_claude = model_name in CLAUDE_MODELS
     is_gemini = model_name in GEMINI_MODELS
 
@@ -71,24 +76,25 @@ def create_model(
             model_type=model_type,
             project=project,
             temperature=temperature,
+            max_output_tokens=max_output_tokens,
         )
 
         if is_claude:
-            # Use ChatAnthropicVertex for Claude models
             return ChatAnthropicVertex(
                 model=model_name,
                 project=project,
                 credentials=credentials,
                 temperature=temperature,
+                max_tokens=max_output_tokens,
                 max_retries=2,
             )
         else:
-            # Use ChatGoogleGenerativeAI for Gemini models
             return ChatGoogleGenerativeAI(
                 model=model_name,
                 temperature=temperature,
                 credentials=credentials,
                 project=project,
+                max_output_tokens=max_output_tokens,
                 max_retries=2,
             )
 
