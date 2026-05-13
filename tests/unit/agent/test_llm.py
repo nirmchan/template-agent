@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from deep_agent.src.agent.llm import CLAUDE_MODELS, GEMINI_MODELS, create_model
+from deep_agent.src.exceptions import LLMError
 
 
 class TestCreateModel:
@@ -26,6 +27,7 @@ class TestCreateModel:
                     temperature=0.5,
                     credentials=mock_creds,
                     project="test-project",
+                    max_output_tokens=8192,
                     max_retries=2,
                 )
 
@@ -45,6 +47,7 @@ class TestCreateModel:
                     project="test-project",
                     credentials=mock_creds,
                     temperature=0.7,
+                    max_tokens=8192,
                     max_retries=2,
                 )
 
@@ -86,7 +89,7 @@ class TestCreateModel:
                 "deep_agent.src.agent.llm.ChatGoogleGenerativeAI",
                 side_effect=RuntimeError("API error"),
             ):
-                with pytest.raises(RuntimeError, match="API error"):
+                with pytest.raises(LLMError, match="API error"):
                     create_model("gemini-2.5-pro")
 
     def test_all_supported_models_work(self):

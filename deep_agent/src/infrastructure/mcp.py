@@ -19,17 +19,31 @@ import base64
 import json
 import os
 import time
+from typing import Any
 
 import httpx
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from deep_agent.src.agent.config import agent_config
+from deep_agent.src.error_handling import CircuitBreaker, create_circuit_breaker
 from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
 logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 
-_SSO_TOKEN_URL = ""
+_SSO_TOKEN_URL: str = ""
+
+_mcp_breaker: CircuitBreaker | None = None
+
+
+def _get_mcp_breaker() -> CircuitBreaker:
+    """Lazy-init the MCP circuit breaker (Redis auto-detected on first call)."""
+    global _mcp_breaker  # noqa: PLW0603
+    if _mcp_breaker is None:
+        _mcp_breaker = create_circuit_breaker(
+            "mcp-servers", threshold=5, reset_timeout=60.0
+        )
+    return _mcp_breaker
 
 
 def _get_token_endpoint() -> str:
@@ -37,7 +51,7 @@ def _get_token_endpoint() -> str:
     global _SSO_TOKEN_URL  # noqa: PLW0603
     if _SSO_TOKEN_URL:
         return _SSO_TOKEN_URL
-    issuer = os.environ.get("SSO_ISSUER_URL", "").rstrip("/")
+    issuer: str = os.environ.get("SSO_ISSUER_URL", "").rstrip("/")
     if issuer:
         _SSO_TOKEN_URL = f"{issuer}/protocol/openid-connect/token"
     return _SSO_TOKEN_URL
@@ -46,9 +60,9 @@ def _get_token_endpoint() -> str:
 def _jwt_exp(token: str) -> float:
     """Extract ``exp`` from a JWT payload without cryptographic validation."""
     try:
-        payload = token.split(".")[1]
+        payload: str = token.split(".")[1]
         payload += "=" * (4 - len(payload) % 4)
-        data = json.loads(base64.urlsafe_b64decode(payload))
+        data: dict[str, Any] = json.loads(base64.urlsafe_b64decode(payload))
         return float(data.get("exp", 0))
     except Exception:
         return 0.0
@@ -65,10 +79,6 @@ async def refresh_access_token(
     the OIDC token endpoint are available, the token is refreshed via the
     standard ``refresh_token`` grant.
 
-    This should be called **once in the graph factory**, before passing
-    the token to ``get_mcp_tools()``, so the MCP client always receives
-    a token that will survive both tool discovery and tool execution.
-
     Args:
         access_token: Current JWT access token (may be expired).
         refresh_token: OIDC refresh token (may be ``None`` or ``""``).
@@ -77,7 +87,7 @@ async def refresh_access_token(
         A valid access token (refreshed if necessary, original if refresh
         is unavailable or fails).
     """
-    remaining = _jwt_exp(access_token) - time.time()
+    remaining: float = _jwt_exp(access_token) - time.time()
     if remaining > 30:
         logger.debug("Access token still valid (%.0fs remaining)", remaining)
         return access_token
@@ -88,8 +98,8 @@ async def refresh_access_token(
         )
         return access_token
 
-    token_url = _get_token_endpoint()
-    client_id = os.environ.get("SSO_CLIENT_ID", "")
+    token_url: str = _get_token_endpoint()
+    client_id: str = os.environ.get("SSO_CLIENT_ID", "")
     if not token_url or not client_id:
         logger.warning("Cannot refresh token — SSO_ISSUER_URL or SSO_CLIENT_ID not set")
         return access_token
@@ -97,7 +107,7 @@ async def refresh_access_token(
     logger.info("Refreshing SSO access token (%.0fs remaining)", remaining)
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
+            resp: httpx.Response = await client.post(
                 token_url,
                 data={
                     "grant_type": "refresh_token",
@@ -106,8 +116,8 @@ async def refresh_access_token(
                 },
             )
             resp.raise_for_status()
-            new_token = resp.json()["access_token"]
-            new_remaining = _jwt_exp(new_token) - time.time()
+            new_token: str = resp.json()["access_token"]
+            new_remaining: float = _jwt_exp(new_token) - time.time()
             logger.info("SSO token refreshed (%.0fs lifetime)", new_remaining)
             return new_token
     except Exception:
@@ -115,7 +125,7 @@ async def refresh_access_token(
         return access_token
 
 
-def _get_server_configs() -> dict[str, dict]:
+def _get_server_configs() -> dict[str, dict[str, Any]]:
     """Get pre-loaded MCP server configurations.
 
     Returns:
@@ -125,14 +135,10 @@ def _get_server_configs() -> dict[str, dict]:
 
 
 def _build_server_config(
-    entry: dict,
+    entry: dict[str, Any],
     sso_token: str | None,
-) -> dict:
+) -> dict[str, Any]:
     """Build MultiServerMCPClient config from server definition.
-
-    The caller is expected to pass a **fresh** ``sso_token`` (see
-    ``refresh_access_token``).  This function simply wires it into the
-    ``Authorization`` header for the MCP connection.
 
     Args:
         entry: Server definition with url, auth, ssl_verify, transport.
@@ -145,7 +151,7 @@ def _build_server_config(
     if entry.get("auth", True) and sso_token:
         headers["Authorization"] = f"Bearer {sso_token}"
 
-    config: dict = {
+    config: dict[str, Any] = {
         "url": entry["url"],
         "transport": entry.get("transport", "streamable_http"),
         "headers": headers,
@@ -160,11 +166,12 @@ def _build_server_config(
 
 
 async def _connect_single_server(
-    name: str, config: dict, timeout: int, *, required: bool = False
-) -> list:
+    name: str, config: dict[str, Any], timeout: int, *, required: bool = False
+) -> list[Any]:
     """Connect to one MCP server and return its tools.
 
     Failures are logged and return empty list for fault isolation.
+    Updates the module-level circuit breaker on success/failure.
 
     Args:
         name: Human-readable server identifier used in log messages.
@@ -172,22 +179,30 @@ async def _connect_single_server(
         timeout: Seconds before the connection attempt is cancelled.
         required: If True the server is explicitly enabled in config,
             so connection failures are logged at error level.
-            If False (startup probe without auth), failures are warnings.
     """
+    breaker = _get_mcp_breaker()
+    if breaker.is_open:
+        logger.warning(f"[{name}] circuit breaker open — skipping connection")
+        return []
+
     try:
         async with asyncio.timeout(timeout):
             client = MultiServerMCPClient({name: config})
-            tools = await client.get_tools()
+            tools: list[Any] = await client.get_tools()
         logger.info(f"[{name}] loaded {len(tools)} tool(s)")
+        breaker.record_success()
         return tools
     except TimeoutError:
+        breaker.record_failure()
         logger.error(f"[{name}] timeout after {timeout}s ({config.get('url')})")
     except Exception as exc:
         if _is_auth_error(exc):
             logger.info(f"[{name}] requires authentication — tools loaded per-request")
         elif _is_connection_error(exc) and not required:
+            breaker.record_failure()
             logger.warning(f"[{name}] not reachable ({config.get('url')}) — skipped")
         else:
+            breaker.record_failure()
             logger.error(
                 f"[{name}] connection failed ({config.get('url')})", exc_info=True
             )
@@ -197,7 +212,7 @@ async def _connect_single_server(
 def _is_auth_error(exc: BaseException) -> bool:
     """Check if an exception is caused by an HTTP 401/403 response."""
     for sub in getattr(exc, "exceptions", [exc]):
-        msg = str(sub)
+        msg: str = str(sub)
         if "401" in msg or "403" in msg or "Unauthorized" in msg or "Forbidden" in msg:
             return True
         if hasattr(sub, "__cause__") and sub.__cause__:
@@ -209,7 +224,7 @@ def _is_auth_error(exc: BaseException) -> bool:
 def _is_connection_error(exc: BaseException) -> bool:
     """Check if an exception is a connection refused / unreachable error."""
     for sub in getattr(exc, "exceptions", [exc]):
-        msg = str(sub).lower()
+        msg: str = str(sub).lower()
         if (
             "connecterror" in msg
             or "connection attempts failed" in msg
@@ -224,7 +239,7 @@ def _is_connection_error(exc: BaseException) -> bool:
 
 async def get_mcp_tools(
     sso_token: str | None = None,
-) -> list:
+) -> list[Any]:
     """Connect to MCP server(s) and retrieve available tools.
 
     Loads server definitions from ``config/mcp.json``, connects to
@@ -242,8 +257,10 @@ async def get_mcp_tools(
     Returns:
         List of available MCP tools (empty list if all connections fail).
     """
-    servers = _get_server_configs()
-    enabled = {k: v for k, v in servers.items() if v.get("enabled", False)}
+    servers: dict[str, dict[str, Any]] = _get_server_configs()
+    enabled: dict[str, dict[str, Any]] = {
+        k: v for k, v in servers.items() if v.get("enabled", False)
+    }
 
     if not enabled:
         logger.warning("No MCP servers enabled")
@@ -251,8 +268,8 @@ async def get_mcp_tools(
 
     logger.info(f"Connecting to {len(enabled)} MCP server(s): {', '.join(enabled)}")
 
-    has_auth = bool(sso_token)
-    results = await asyncio.gather(
+    has_auth: bool = bool(sso_token)
+    results: list[list[Any]] = await asyncio.gather(
         *[
             _connect_single_server(
                 name=name,
@@ -264,9 +281,8 @@ async def get_mcp_tools(
         ]
     )
 
-    # Deduplicate tools by name (first occurrence wins)
-    seen = set()
-    tools = []
+    seen: set[str] = set()
+    tools: list[Any] = []
     for tool_list in results:
         for tool in tool_list:
             if tool.name not in seen:

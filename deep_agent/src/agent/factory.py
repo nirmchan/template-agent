@@ -8,12 +8,17 @@ Functions:
     get_deep_agent: Create and configure a deep agent (async context manager)
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from deepagents import create_deep_agent
+from deepagents.backends import LocalShellBackend
+from langgraph.graph.state import CompiledStateGraph
 
 from deep_agent.src.agent.config import agent_config
 from deep_agent.src.agent.llm import create_model
+from deep_agent.src.exceptions import ConfigurationError
 from deep_agent.src.infrastructure.backend import get_backend
 from deep_agent.src.infrastructure.checkpointer import get_checkpointer
 from deep_agent.src.infrastructure.mcp import get_mcp_tools
@@ -28,7 +33,7 @@ logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 async def get_deep_agent(
     sso_token: str | None = None,
     refresh_token: str | None = None,
-):
+) -> AsyncGenerator[CompiledStateGraph, None]:
     """Get a fully initialized deep agent with MCP tools, skills, subagents, and memory.
 
     This function creates and configures a deep agent using the deepagents library
@@ -44,23 +49,25 @@ async def get_deep_agent(
         The initialized deep agent instance.
 
     Raises:
-        Exception: If there are issues with database connections or agent setup.
+        ConfigurationError: If agent configuration is invalid.
+        LLMError: If model creation fails.
+        MCPError: If MCP tool loading fails critically.
     """
-    # Get pre-loaded orchestrator configuration
-    orchestrator_cfg = agent_config.get_orchestrator_config()
+    try:
+        orchestrator_cfg: dict[str, Any] = agent_config.get_orchestrator_config()
+    except Exception as e:
+        raise ConfigurationError(f"Failed to load orchestrator config: {e}") from e
 
-    # Extract configuration from frontmatter
-    agent_name = orchestrator_cfg.get("name", "orchestrator")
-    model_name = orchestrator_cfg.get("model", "gemini-3.1-pro-preview")
-    system_prompt = orchestrator_cfg.get("body", "")
-    skill_paths = orchestrator_cfg.get("skill_paths", [])
-    tool_names = orchestrator_cfg.get("tools", [])
+    agent_name: str = orchestrator_cfg.get("name", "orchestrator")
+    model_name: str = orchestrator_cfg.get("model", "gemini-3.1-pro-preview")
+    system_prompt: str = orchestrator_cfg.get("body", "")
+    skill_paths: list[str] = orchestrator_cfg.get("skill_paths", [])
+    tool_names: list[str] = orchestrator_cfg.get("tools", [])
 
     logger.info(
         f"Initializing orchestrator agent '{agent_name}' with model: {model_name}"
     )
 
-    # Initialize the language model
     model = create_model(model_name=model_name)
 
     if sso_token:
@@ -68,19 +75,18 @@ async def get_deep_agent(
 
         sso_token = await refresh_access_token(sso_token, refresh_token)
 
-    mcp_tools = await get_mcp_tools(sso_token=sso_token)
+    mcp_tools: list[Any] = await get_mcp_tools(sso_token=sso_token)
 
-    # Resolve tools from tool names in frontmatter
-    tools = agent_config.resolve_tools(tool_names, mcp_tools, agent_name=agent_name)
+    tools: list[Any] = agent_config.resolve_tools(
+        tool_names, mcp_tools, agent_name=agent_name
+    )
 
-    # Build subagents from pre-loaded configs
     subagents = load_subagents(tools=mcp_tools)
 
-    # Load and configure backend
-    backend = get_backend()
+    backend: LocalShellBackend = get_backend()
 
     async with get_checkpointer() as checkpointer:
-        agent = create_deep_agent(
+        agent: CompiledStateGraph = create_deep_agent(
             name=agent_name,
             model=model,
             system_prompt=system_prompt,
@@ -89,7 +95,7 @@ async def get_deep_agent(
             subagents=subagents,
             backend=backend,
             checkpointer=checkpointer,
-            store=None,  # TODO: Add store support
+            store=None,
         )
         logger.info(f"Orchestrator agent '{agent_name}' initialized successfully")
         yield agent

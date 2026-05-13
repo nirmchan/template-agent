@@ -20,6 +20,7 @@ from deepagents import SubAgent
 
 from deep_agent.src.agent.config import agent_config
 from deep_agent.src.agent.llm import create_model
+from deep_agent.src.exceptions import LLMError, SubAgentError
 from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
@@ -27,17 +28,22 @@ logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 
 
 def load_subagents(
-    tools: list,
+    tools: list[Any],
 ) -> list[SubAgent] | None:
     """Build subagents from pre-loaded configurations.
 
     Args:
-        tools: List of available MCP tools
+        tools: List of available MCP tools.
 
     Returns:
-        List of configured SubAgent instances, or None if no subagents configured
+        List of configured SubAgent instances, or None if no subagents configured.
+
+    Raises:
+        SubAgentError: If a subagent fails to build (missing model, bad config).
     """
-    all_subagent_configs = agent_config.get_all_subagent_configs()
+    all_subagent_configs: dict[str, dict[str, Any]] = (
+        agent_config.get_all_subagent_configs()
+    )
 
     if not all_subagent_configs:
         logger.warning("No subagent configurations found")
@@ -48,44 +54,66 @@ def load_subagents(
     subagents_list: list[SubAgent] = []
 
     for name, agent_cfg in all_subagent_configs.items():
-        # Model is required for subagents
-        model_name = agent_cfg.get("model")
-        if not model_name:
-            raise ValueError(
-                f"Subagent '{name}' is missing required 'model' field in frontmatter"
-            )
-
-        logger.info(f"Subagent '{name}' using model: {model_name}")
-
-        # Resolve tools and get pre-resolved skill paths
-        tool_names = agent_cfg.get("tools", [])
-        resolved_tools = (
-            agent_config.resolve_tools(tool_names, tools, agent_name=name)
-            if tool_names
-            else []
-        )
-
-        # Skills are already resolved during config loading
-        skill_paths = agent_cfg.get("skill_paths", [])
-
-        # Build subagent params dict
-        subagent_params: dict[str, Any] = {
-            "name": name,
-            "model": create_model(model_name=model_name),
-            "description": agent_cfg.get("description", ""),
-            "system_prompt": agent_cfg.get("body", ""),
-        }
-
-        # Add optional parameters only if they have values
-        if resolved_tools:
-            subagent_params["tools"] = resolved_tools
-        if skill_paths:
-            subagent_params["skills"] = skill_paths
-
-        # Build SubAgent with all parameters at once
-        sa = SubAgent(**subagent_params)
-
-        subagents_list.append(sa)
+        try:
+            sa = _build_single_subagent(name, agent_cfg, tools)
+            subagents_list.append(sa)
+        except (ValueError, LLMError) as e:
+            raise SubAgentError(f"Failed to build subagent '{name}': {e}") from e
+        except Exception as e:
+            raise SubAgentError(
+                f"Unexpected error building subagent '{name}': {e}"
+            ) from e
 
     logger.info(f"Built {len(subagents_list)} subagent(s) successfully")
     return subagents_list
+
+
+def _build_single_subagent(
+    name: str,
+    agent_cfg: dict[str, Any],
+    tools: list[Any],
+) -> SubAgent:
+    """Build a single SubAgent from its configuration.
+
+    Args:
+        name: Subagent name (from config filename).
+        agent_cfg: Parsed frontmatter config for this subagent.
+        tools: Available MCP tools for tool resolution.
+
+    Returns:
+        Configured SubAgent instance.
+
+    Raises:
+        ValueError: If required fields are missing in config.
+        LLMError: If model creation fails.
+    """
+    model_name: str | None = agent_cfg.get("model")
+    if not model_name:
+        raise ValueError(
+            f"Subagent '{name}' is missing required 'model' field in frontmatter"
+        )
+
+    logger.info(f"Subagent '{name}' using model: {model_name}")
+
+    tool_names: list[str] = agent_cfg.get("tools", [])
+    resolved_tools: list[Any] = (
+        agent_config.resolve_tools(tool_names, tools, agent_name=name)
+        if tool_names
+        else []
+    )
+
+    skill_paths: list[str] = agent_cfg.get("skill_paths", [])
+
+    subagent_params: dict[str, Any] = {
+        "name": name,
+        "model": create_model(model_name=model_name),
+        "description": agent_cfg.get("description", ""),
+        "system_prompt": agent_cfg.get("body", ""),
+    }
+
+    if resolved_tools:
+        subagent_params["tools"] = resolved_tools
+    if skill_paths:
+        subagent_params["skills"] = skill_paths
+
+    return SubAgent(**subagent_params)

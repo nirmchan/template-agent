@@ -1,7 +1,5 @@
 """Tests for aegra.nodes module."""
 
-import time
-
 import pytest
 
 from deep_agent.aegra.nodes import timed_node, with_error_handling, with_retry

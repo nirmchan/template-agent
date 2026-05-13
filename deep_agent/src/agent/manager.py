@@ -20,10 +20,12 @@ from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from deep_agent.aegra.telemetry import create_langfuse_handler
 from deep_agent.src.agent.factory import get_deep_agent
+from deep_agent.src.error_handling import classify_error
 from deep_agent.src.schema import StreamRequest
 from deep_agent.src.settings import settings
 from deep_agent.src.streaming import (
@@ -52,7 +54,7 @@ class AgentManager:
         self,
         redhat_sso_token: str | None = None,
         refresh_token: str | None = None,
-    ):
+    ) -> None:
         """Initialize the AgentManager.
 
         Args:
@@ -62,11 +64,9 @@ class AgentManager:
         self.redhat_sso_token = redhat_sso_token
         self.refresh_token = refresh_token
 
-        # Initialize streaming components
         self.deduplicator = MessageDeduplicator()
         self.tracker = ToolCallTracker()
 
-        # Register event handlers
         self.handlers: dict[str, UpdateEventHandler | TokenEventHandler] = {
             "updates": UpdateEventHandler(self.deduplicator),
             "messages": TokenEventHandler(self.tracker),
@@ -87,18 +87,15 @@ class AgentManager:
         """
         async with get_deep_agent(self.redhat_sso_token, self.refresh_token) as agent:
             try:
-                # Reset per-stream state
                 self.deduplicator.reset()
                 self.tracker.reset()
 
-                # Prepare input and configuration
                 config, ctx = await self._prepare_stream(request, agent)
 
                 logger.info(
                     f"Streaming response for run_id={ctx.run_id}, thread_id={ctx.thread_id}"
                 )
 
-                # Stream events from agent
                 async for stream_event in agent.astream(
                     **config, stream_mode=["updates", "messages"]
                 ):
@@ -107,15 +104,12 @@ class AgentManager:
 
                     stream_mode, event = stream_event
 
-                    # Update tool call tracking
                     self.tracker.update_from_stream_event(stream_mode, event)
 
-                    # Route to appropriate handler
                     handler = self.handlers.get(stream_mode)
                     if not handler:
                         continue
 
-                    # Process and yield formatted events
                     formatted_events = handler.handle(event, ctx)
                     for formatted_event in formatted_events:
                         if formatted_event:
@@ -125,36 +119,27 @@ class AgentManager:
 
             except Exception as e:
                 logger.error(f"Error in stream_response: {e}", exc_info=True)
-                yield {
-                    "type": "error",
-                    "content": {
-                        "message": "Internal server error",
-                        "recoverable": False,
-                        "error_type": "agent_error",
-                    },
-                }
+                yield {"type": "error", "content": classify_error(e)}
 
     async def _prepare_stream(
-        self, request: StreamRequest, agent
+        self, request: StreamRequest, agent: CompiledStateGraph
     ) -> tuple[dict[str, Any], StreamContext]:
         """Prepare streaming configuration and context.
 
         Args:
             request: The stream request.
-            agent: The agent instance.
+            agent: The compiled agent graph instance.
 
         Returns:
             Tuple of (config dict for astream, StreamContext).
         """
-        run_id = uuid4().hex
-        trace_id = uuid4().hex
+        run_id: str = uuid4().hex
+        trace_id: str = uuid4().hex
 
-        # Handle optional parameters with defaults
-        effective_thread_id = request.thread_id or uuid4().hex
-        effective_session_id = request.session_id or uuid4().hex
-        effective_user_id = request.user_id or "anonymous"
+        effective_thread_id: str = request.thread_id or uuid4().hex
+        effective_session_id: str = request.session_id or uuid4().hex
+        effective_user_id: str = request.user_id or "anonymous"
 
-        # Log when auto-generating values
         if not request.thread_id:
             logger.info(f"Auto-generated thread_id: {effective_thread_id}")
         if not request.session_id:
@@ -162,7 +147,7 @@ class AgentManager:
         if not request.user_id:
             logger.info("No user_id provided, using 'anonymous'")
 
-        callbacks = []
+        callbacks: list[Any] = []
 
         langfuse_handler = create_langfuse_handler(
             session_id=effective_session_id,
@@ -191,11 +176,9 @@ class AgentManager:
             },
         )
 
-        # Get current state and pre-populate seen messages
         state = await agent.aget_state(config=config)
         self.deduplicator.populate_from_history(state.values.get("messages", []))
 
-        # Check for interrupt resumption
         interrupted_tasks = [
             task
             for task in state.tasks
@@ -212,7 +195,6 @@ class AgentManager:
             f"Configured run_id={run_id}, thread_id={effective_thread_id}, session_id={effective_session_id}"
         )
 
-        # Create stream context
         ctx = StreamContext(
             run_id=run_id,
             trace_id=trace_id,

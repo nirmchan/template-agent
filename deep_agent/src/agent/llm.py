@@ -14,49 +14,58 @@ Functions:
     create_model: Create a configured LLM instance by model name
 """
 
-from typing import Union
-
+from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_vertexai.model_garden import ChatAnthropicVertex
 
+from deep_agent.src.error_handling import llm_retry
+from deep_agent.src.exceptions import LLMError
 from deep_agent.src.settings import settings
 from deep_agent.utils.google_creds import get_service_account_credentials
 from deep_agent.utils.pylogger import get_python_logger
 
 logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 
-_DEFAULT_MAX_OUTPUT_TOKENS = settings.MAX_OUTPUT_TOKENS
+_DEFAULT_MAX_OUTPUT_TOKENS: int = settings.MAX_OUTPUT_TOKENS
 
-# Supported Gemini models on Vertex AI
-GEMINI_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.1-pro-preview"]
+GEMINI_MODELS: list[str] = [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-3.1-pro-preview",
+]
 
-# Supported Claude models on Vertex AI
-CLAUDE_MODELS = [
+CLAUDE_MODELS: list[str] = [
     "claude-sonnet-4",
 ]
 
 
+@llm_retry
 def create_model(
     model_name: str,
     temperature: float = 0.0,
     max_output_tokens: int | None = None,
-) -> Union[ChatGoogleGenerativeAI, ChatAnthropicVertex]:
+) -> BaseChatModel:
     """Create a Vertex AI model (Gemini or Claude).
 
+    Retries up to 3 times with exponential backoff on transient failures
+    (credential refresh, network issues, rate limits).
+
     Args:
-        model_name: Model name from GEMINI_MODELS or CLAUDE_MODELS
-        temperature: Model temperature (default: 0.0)
-        max_output_tokens: Maximum tokens in model response (default: 8192)
+        model_name: Model name from GEMINI_MODELS or CLAUDE_MODELS.
+        temperature: Model temperature (default: 0.0).
+        max_output_tokens: Maximum tokens in model response (default: 8192).
 
     Returns:
-        Configured model instance
+        Configured model instance.
+
+    Raises:
+        ValueError: If model_name is empty or unsupported.
+        LLMError: If model creation fails after retries.
     """
     if not model_name or not model_name.strip():
         raise ValueError("model_name cannot be empty")
 
     max_output_tokens = max_output_tokens or _DEFAULT_MAX_OUTPUT_TOKENS
-
-    credentials, project = get_service_account_credentials()
 
     is_claude = model_name in CLAUDE_MODELS
     is_gemini = model_name in GEMINI_MODELS
@@ -70,6 +79,8 @@ def create_model(
     model_type = "Claude" if is_claude else "Gemini"
 
     try:
+        credentials, project = get_service_account_credentials()
+
         logger.info(
             f"Creating {model_type} model via Vertex AI",
             model=model_name,
@@ -98,14 +109,17 @@ def create_model(
                 max_retries=2,
             )
 
+    except (ValueError, LLMError):
+        raise
     except Exception as e:
         logger.error(
             f"Failed to create {model_type} model '{model_name}'",
             error_type=type(e).__name__,
             model=model_name,
             model_type=model_type,
-            project=project,
             error_message=str(e),
             exc_info=True,
         )
-        raise
+        raise LLMError(
+            f"Failed to create {model_type} model '{model_name}': {e}"
+        ) from e

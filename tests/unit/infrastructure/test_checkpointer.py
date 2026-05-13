@@ -49,7 +49,7 @@ class TestInitializeCheckpointer:
                 await initialize_checkpointer()
 
             assert "Database initialization failed" in str(exc_info.value)
-            assert exc_info.value.code == "E_008"
+            assert exc_info.value.code == "E_007"
 
     @pytest.mark.asyncio
     async def test_connection_failure_raises_app_exception(self):

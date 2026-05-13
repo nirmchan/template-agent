@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from deep_agent.src.exceptions import SubAgentError
 from deep_agent.src.infrastructure.subagents import load_subagents
 
 
@@ -35,7 +36,7 @@ class TestLoadSubagents:
                 }
             }
 
-            with pytest.raises(ValueError, match="missing required 'model' field"):
+            with pytest.raises(SubAgentError, match="missing required 'model' field"):
                 load_subagents(tools=[])
 
     def test_load_single_subagent_minimal(self):
