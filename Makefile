@@ -144,7 +144,7 @@ DEMO_DIR := .demo
 DEMO_MCP_REPO := https://github.com/redhat-data-and-ai/template-mcp-server.git
 DEMO_MCP_BRANCH := deep-agent
 DEMO_UI_REPO := https://github.com/redhat-data-and-ai/template-ui.git
-DEMO_UI_BRANCH := feat/template-agent
+DEMO_UI_BRANCH := feat/rh-flavour
 
 demo: ## Start demo: UI + agent + MCP server with SSO auth (end-to-end)
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
