@@ -49,9 +49,18 @@ if str(_REPO_ROOT) not in sys.path:
 
 os.environ.setdefault("PYTHONPATH", str(_REPO_ROOT))
 
-from deep_agent.aegra.telemetry import setup_langfuse_tracing  # noqa: E402
+_startup_done = False  # noqa: E402
 
-setup_langfuse_tracing()
+
+async def _ensure_startup() -> None:  # noqa: E402
+    """Run startup orchestrator once (lazy, on first request)."""
+    global _startup_done  # noqa: PLW0603
+    if _startup_done:
+        return
+    from deep_agent.aegra.startup import run_startup
+
+    await run_startup()
+    _startup_done = True
 
 
 async def agent(runtime: ServerRuntime) -> Any:
@@ -70,6 +79,8 @@ async def agent(runtime: ServerRuntime) -> Any:
     Returns:
         A compiled deep-agent graph (``CompiledStateGraph``).
     """
+    await _ensure_startup()
+
     from deepagents import create_deep_agent
 
     from deep_agent.src.agent.config import agent_config
