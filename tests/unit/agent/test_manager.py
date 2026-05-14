@@ -70,7 +70,13 @@ class TestAgentManagerStreamResponse:
         manager = AgentManager()
 
         mock_agent = AsyncMock()
-        mock_agent.astream = AsyncMock(side_effect=RuntimeError("agent exploded"))
+
+        async def exploding_astream(*_args, **_kwargs):
+            raise RuntimeError("agent exploded")
+            if False:
+                yield None
+
+        mock_agent.astream = exploding_astream
         mock_agent.aget_state = AsyncMock(
             return_value=MagicMock(
                 values={"messages": []},
@@ -98,9 +104,55 @@ class TestAgentManagerStreamResponse:
                 async for event in manager.stream_response(request):
                     events.append(event)
 
-        assert len(events) == 1
-        assert events[0]["type"] == "error"
-        assert "recoverable" in events[0]["content"]
+        assert len(events) == 2
+        assert events[0]["type"] == "metadata"
+        assert set(events[0]["content"].keys()) >= {"run_id", "trace_id", "thread_id"}
+        assert events[1]["type"] == "error"
+        assert "recoverable" in events[1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_stream_response_yields_metadata_before_stream_events(self):
+        manager = AgentManager()
+
+        mock_agent = AsyncMock()
+
+        async def empty_astream(*_args, **_kwargs):
+            while False:
+                yield None
+
+        mock_agent.astream = empty_astream
+        mock_agent.aget_state = AsyncMock(
+            return_value=MagicMock(
+                values={"messages": []},
+                tasks=[],
+            )
+        )
+
+        mock_ctx_manager = AsyncMock()
+        mock_ctx_manager.__aenter__ = AsyncMock(return_value=mock_agent)
+        mock_ctx_manager.__aexit__ = AsyncMock(return_value=False)
+
+        from deep_agent.src.schema import StreamRequest
+
+        request = StreamRequest(message="hello", thread_id="t-metadata")
+
+        with patch(
+            "deep_agent.src.agent.manager.get_deep_agent",
+            return_value=mock_ctx_manager,
+        ):
+            with patch(
+                "deep_agent.src.agent.manager.create_langfuse_handler",
+                return_value=None,
+            ):
+                events = []
+                async for event in manager.stream_response(request):
+                    events.append(event)
+
+        assert len(events) >= 1
+        assert events[0]["type"] == "metadata"
+        assert events[0]["content"]["thread_id"] == "t-metadata"
+        assert "run_id" in events[0]["content"]
+        assert "trace_id" in events[0]["content"]
 
 
 class TestPrepareStream:

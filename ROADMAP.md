@@ -50,7 +50,7 @@ Week  Backend (template-agent)              Frontend (template-ui)
  6    ✅ Multi-Layer Caching                 ✅ Deep Agent Features (Interrupts)
  7    ✅ Memory & Database                   ✅ Personalization & Settings
  8    ✅ Logging & Telemetry                 ✅ Resilience & Error Handling
- 9    ✅ Health & Diagnostics                UX Polish (Feedback, Editing)
+ 9    ✅ Health & Diagnostics                ✅ UX Polish (Feedback, Editing)
 10    Developer Experience (CLI)             UX Polish (Accessibility)
 11    DeepAgents: Agent Types & Middleware   Production Hardening (OTEL, Security)
 12    DeepAgents: Filesystem Abstraction     Testing & Quality
@@ -576,17 +576,27 @@ Completed: 2026-05-13
 **Goal:** Add features that make the chat experience polished and professional.
 **Depends on:** Backend /feedback endpoint (Part A MR-24 Langfuse integration)
 
-#### Feedback System (MRs 67-69)
-- [ ] MR-67: Add feedback buttons on AI messages (3h)
-- [ ] MR-68: Add feedback API service and BFF route (2h)
-- [ ] MR-69: Add feedback state tracking (2h)
+#### Feedback System (MRs 67-69) — ✅ COMPLETE
+- [x] MR-67: Add feedback buttons on AI messages — `FeedbackButtons.tsx` with ThumbsUp/ThumbsDown (lucide-react), hover-visible below AI messages, loading state, toggle support, disabled with tooltip when `traceId` unavailable
+- [x] MR-68: Add feedback API service and BFF route — `feedback-api.ts` posts to `/api/proxy/agent/feedback` with `{trace_id, name, value, kwargs}`; BFF now forwards `metadata` SSE events (was skipping them); `SSEProcessor` emits `kind: 'metadata'`; `StreamingManager` calls `onMetadata`; `useStreamingAPI` captures and exposes `traceId`
+- [x] MR-69: Add feedback state tracking — `ChatItem.feedback: Record<string, 'up' | 'down'>` in Redux `chats.ts`; `setMessageFeedback(chatId, messageId, feedback)` reducer; persisted to localStorage via chatStorage
 
-#### Message Enhancements (MRs 70-74)
-- [ ] MR-70: Add message editing (3h)
-- [ ] MR-71: Add thinking/reasoning blocks (2h)
-- [ ] MR-72: Add copy actions (2h)
-- [ ] MR-73: Add response latency indicator (2h)
-- [ ] MR-74: Add custom data renderer (3h)
+#### Backend: Feedback → Langfuse Scores — ✅ COMPLETE
+- [x] B-1: `POST /feedback` route — `deep_agent/aegra/feedback.py` with FastAPI app, validates `FeedbackRequest`, calls `langfuse_client.score(trace_id, name, value, **kwargs)`, graceful degradation when Langfuse unconfigured; registered via `aegra.json` `http.app`
+- [x] B-2: Stream metadata event — `manager.py` yields `{"type": "metadata", "content": {"run_id", "trace_id", "thread_id"}}` before streaming loop; frontend captures for feedback correlation
+
+#### Message Enhancements (MRs 70-74) — ✅ COMPLETE
+- [x] MR-70: Add message editing — Pencil icon on hover for last human message, inline textarea edit mode, Save/Cancel, re-submits truncated conversation with edited message
+- [x] MR-71: Add thinking/reasoning blocks — Detects `<think>`/`<thinking>` tags and `type: "thinking"` content blocks; renders in collapsed PatternFly `ExpandableSection` with muted monospace styling
+- [x] MR-72: Add copy actions — Copy button on AI messages (with Copied! feedback), copy button on fenced code blocks (top-right corner, 2s Check icon transition)
+- [x] MR-73: Add response latency indicator — `useStreamingAPI` tracks `streamStartTime`, `firstTokenTime`, `streamEndTime`; exposes `timeToFirstToken` and `totalDuration`; shown below last AI message as subtle muted text
+- [x] MR-74: Add custom data renderer — `CustomDataRenderer.tsx` handles `table` (PatternFly Table), `json` (formatted code), `list` (bulleted), default (pretty JSON); wired into `AiMessageBubble` via `custom_data` field
+
+#### Additional deliverables
+- Backend: 6 new unit tests for feedback (Langfuse mock, graceful degradation, validation, score failure)
+- Backend: Manager test updated for metadata-first assertion
+- Frontend: 3 new files, 14 modified files, build verified clean
+- Added `@patternfly/react-table` dependency for custom data renderer
 
 #### Navigation & Discovery (MRs 75-78)
 - [ ] MR-75: Add keyboard shortcuts (2h)
@@ -598,7 +608,7 @@ Completed: 2026-05-13
 - [ ] MR-79: Add WCAG 2.1 AA keyboard navigation (3h)
 - [ ] MR-80: Add ARIA labels and screen reader support (3h)
 
-**Milestone:** Polished UX. Feedback, message editing, keyboard shortcuts, accessibility, export.
+**Milestone (partial):** ✅ Feedback system with Langfuse score integration, message editing, thinking blocks, copy actions, latency indicator, custom data renderer. Remaining: navigation, keyboard shortcuts, accessibility.
 
 ---
 

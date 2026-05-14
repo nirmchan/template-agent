@@ -96,6 +96,15 @@ class AgentManager:
                     f"Streaming response for run_id={ctx.run_id}, thread_id={ctx.thread_id}"
                 )
 
+                yield {
+                    "type": "metadata",
+                    "content": {
+                        "run_id": ctx.run_id,
+                        "trace_id": ctx.trace_id,
+                        "thread_id": ctx.thread_id,
+                    },
+                }
+
                 async for stream_event in agent.astream(
                     **config, stream_mode=["updates", "messages"]
                 ):
