@@ -70,10 +70,19 @@ def encrypt_user_id(user_id: str) -> str:
 
 
 def _resolve_jwks_uri() -> str:
-    """Resolve JWKS URI from explicit config or OIDC discovery."""
+    """Resolve JWKS URI from explicit config or OIDC discovery.
+
+    Caches the resolved URI in ``_RESOLVED_JWKS_URI`` env var so that
+    workers that re-import this module skip the HTTP discovery round-trip.
+    """
     if SSO_JWKS_URI:
         logger.info("Using explicit SSO_JWKS_URI: %s", SSO_JWKS_URI)
         return SSO_JWKS_URI
+
+    cached = os.environ.get("_RESOLVED_JWKS_URI", "")
+    if cached:
+        logger.debug("Using cached JWKS URI: %s", cached)
+        return cached
 
     if not SSO_ISSUER_URL:
         raise RuntimeError("SSO_ISSUER_URL or SSO_JWKS_URI must be set")
@@ -82,7 +91,9 @@ def _resolve_jwks_uri() -> str:
     logger.info("Discovering JWKS from: %s", discovery_url)
     resp = httpx.get(discovery_url, timeout=10)
     resp.raise_for_status()
-    return resp.json()["jwks_uri"]
+    jwks_uri: str = resp.json()["jwks_uri"]
+    os.environ["_RESOLVED_JWKS_URI"] = jwks_uri
+    return jwks_uri
 
 
 def _get_jwks_client() -> jwt.PyJWKClient:
@@ -114,7 +125,8 @@ def _decode_token(token: str) -> dict[str, Any]:
     if SSO_ISSUER_URL:
         kwargs["issuer"] = SSO_ISSUER_URL
 
-    return jwt.decode(token, signing_key.key, **kwargs)
+    result: dict[str, Any] = jwt.decode(token, signing_key.key, **kwargs)
+    return result
 
 
 def _build_dev_user() -> dict[str, Any]:
