@@ -13,11 +13,13 @@ RUN pip install --no-cache-dir uv && \
     mkdir -p /app/.cache && chown -R 65532:root /app/.cache
 USER 65532
 
-COPY deep_agent /app/deep_agent
-COPY config /app/config
-COPY aegra.json /app/aegra.json
+COPY --chown=65532:root deep_agent /app/deep_agent
+COPY --chown=65532:root config /app/config
+COPY --chown=65532:root aegra.json /app/aegra.json
 
 ENV PYTHONPATH=/app
+ENV AGENT_HOST=0.0.0.0
+ENV AGENT_PORT=5002
 
 EXPOSE 5002
-CMD ["/app/.venv/bin/aegra", "serve", "--host", "0.0.0.0", "--port", "5002"]
+CMD ["/bin/sh", "-c", "/app/.venv/bin/aegra serve --host ${AGENT_HOST} --port ${AGENT_PORT}"]
