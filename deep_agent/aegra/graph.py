@@ -91,6 +91,34 @@ async def agent(runtime: ServerRuntime) -> Any:
     skill_paths = orchestrator_cfg.get("skill_paths", [])
     tool_names = orchestrator_cfg.get("tools", [])
 
+    user_identity = getattr(user, "identity", None) if user else None
+    if user_identity:
+        try:
+            from deep_agent.src.personalization.injector import inject_personalization
+            from deep_agent.src.personalization.repository import (
+                PersonalizationRepository,
+            )
+            from deep_agent.src.settings import settings as app_settings
+
+            repo = PersonalizationRepository(app_settings.database_uri)
+            memories = await repo.list_memories(user_identity)
+            rules = await repo.list_rules(user_identity, active_only=True)
+            system_prompt = inject_personalization(
+                system_prompt,
+                [m.content for m in memories],
+                [r.content for r in rules],
+            )
+            if memories or rules:
+                logger.info(
+                    "Personalization injected: %d memories, %d rules",
+                    len(memories),
+                    len(rules),
+                )
+        except Exception:
+            logger.debug(
+                "Personalization unavailable, continuing without", exc_info=True
+            )
+
     logger.info(
         "Building agent '%s' (model=%s, mcp_auth=%s)",
         agent_name,
