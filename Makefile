@@ -58,6 +58,14 @@ test:
 	fi
 	.venv/bin/python -m pytest tests/unit
 
+test-cov: ## Run unit tests with coverage report
+	@if [ ! -d ".venv" ]; then \
+		echo "Error: Virtual environment not found. Run 'make install' first to set up the environment."; \
+		exit 1; \
+	fi
+	@echo "Running unit tests with coverage..."
+	.venv/bin/python -m pytest tests/unit --cov=deep_agent --cov-report=xml --cov-report=html --cov-report=term-missing
+
 test-all:
 	@if [ ! -d ".venv" ]; then \
 		echo "Error: Virtual environment not found. Run 'make install' first to set up the environment."; \

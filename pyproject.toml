@@ -39,6 +39,7 @@ dev = [
     "pytest==8.4.1",
     "pytest-asyncio==1.0.0",
     "pytest-cov==6.2.1",
+    "pytest-mock>=3.14.0",
     "ruff==0.12.2",
     "mypy==1.16.1",
     "pre-commit==4.2.0",
@@ -88,15 +89,18 @@ addopts = [
     "--strict-markers",
     "--strict-config",
 ]
+asyncio_mode = "auto"
 markers = [
     "asyncio",
+    "unit: fast isolated unit tests",
+    "integration: tests requiring external services or multi-component interaction",
     "skills: marks tests as skill evaluation tests (deselect with '-m \"not skills\"')",
     "e2e: end-to-end tests requiring a running aegra server",
     "slow: tests that take more than 30 seconds",
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["deep_agent"]
 omit = [
     "*/tests/*",
     "*/test_*",
@@ -104,7 +108,11 @@ omit = [
     "*/migrations/*",
 ]
 
+[tool.coverage.html]
+directory = "htmlcov"
+
 [tool.coverage.report]
+show_missing = true
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

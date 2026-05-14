@@ -46,7 +46,7 @@ Week  Backend (template-agent)              Frontend (template-ui)
  2    ✅ Aegra Core Integration              ✅ PatternFly Integration
  3    ✅ Aegra Testing & Deployment          ✅ Core Chat (Streaming Engine)
  4    ✅ Error Handling & Type Safety        ✅ Core Chat (UI + Sidebar)
- 5    Test Infrastructure                    ✅ Deep Agent Features (Sub-agents)
+ 5    ✅ Test Infrastructure                  ✅ Deep Agent Features (Sub-agents)
  6    Multi-Layer Caching                    ✅ Deep Agent Features (Interrupts)
  7    Memory & Database                      ✅ Personalization & Settings
  8    Logging & Telemetry                    Resilience & Error Handling
@@ -166,23 +166,32 @@ Health endpoint (/ok) ────────── Agent health indicator (Pha
 - [x] Circuit breaker Redis persistence with HSET/HGETALL + TTL auto-expiry (3x reset_timeout, min 300s)
 - [x] 43 unit tests for error_handling.py (classify_error, with_fallback, CircuitBreaker in-memory + Redis-mocked)
 
-**Week 5: Test Infrastructure (MRs 55-68)**
-- [ ] MR-55: Add pytest-mock dependency
-- [ ] MR-56: Create conftest.py with fixtures
-- [ ] MR-57: Add test DB fixture
-- [ ] MR-58: Add mock LLM fixture
-- [ ] MR-59: Unit tests for AgentManager
-- [ ] MR-60: Unit tests for BMI skill
-- [ ] MR-61: Unit tests for email skill
-- [ ] MR-62: Parametrized tests for skills
-- [ ] MR-63: Integration tests for subagents
-- [ ] MR-64: Add test markers (unit/integration)
-- [ ] MR-65: Add pytest-cov configuration
-- [ ] MR-66: Add coverage gate to CI
-- [ ] MR-67: Add coverage report generation
-- [ ] MR-68: Achieve 80%+ coverage baseline
+**Week 5: Test Infrastructure (MRs 55-68) ✅**
+- [x] MR-55: Add pytest-mock dependency
+- [x] MR-56: Create conftest.py with fixtures
+- [x] MR-57: Add test DB fixture
+- [x] MR-58: Add mock LLM fixture
+- [x] MR-59: Unit tests for AgentManager
+- [x] MR-60: Unit tests for BMI skill
+- [x] MR-61: Unit tests for email skill
+- [x] MR-62: Parametrized tests for skills
+- [x] MR-63: Integration tests for subagents
+- [x] MR-64: Add test markers (unit/integration)
+- [x] MR-65: Add pytest-cov configuration
+- [x] MR-66: Add coverage gate to CI
+- [x] MR-67: Add coverage report generation
+- [x] MR-68: Achieve 80%+ coverage baseline
 
-**Milestone:** ✅ Production error handling + type safety complete. Remaining: skills/ type hints (MR-51), pyright (MR-53), test infrastructure (Week 5), 80%+ coverage
+**Additional deliverables (beyond original plan):**
+- [x] New test files: test_settings, test_schema, test_personalization, test_repository, test_auth, test_telemetry, test_serialization, test_middleware, test_graph, test_backend, test_mcp_helpers
+- [x] Fixed 3 pre-existing test_config failures (PROMPT.md path migration)
+- [x] 346 unit tests passing, 80% coverage (up from 19%)
+- [x] `asyncio_mode = "auto"` for pytest-asyncio
+- [x] `make test-cov` target for local coverage runs
+- [x] Coverage source fixed from `src` to `deep_agent`
+- [x] HTML + XML coverage report generation
+
+**Milestone:** ✅ Production error handling + type safety + test infrastructure complete. Remaining: skills/ type hints (MR-51), pyright (MR-53)
 
 #### Phase 3: Scalability Features (Weeks 6-7)
 
