@@ -29,7 +29,7 @@ A **complete agent platform** — backend + frontend — that is:
 | Scalability | 30+ concurrent jobs/instance | Aegra workers |
 | Test Coverage | 80%+ (both tracks) | agent-lightning, vitest |
 | Token Cost | 70% reduction | Multi-layer caching |
-| Throughput | 3x improvement | Dual-pool DB |
+| Throughput | 3x improvement | Score-ranked memory + caching |
 | MTTR | <15 min | OpenTelemetry (both tracks) |
 | Security | Enterprise-ready | JWT + RBAC + CSP + sandbox |
 | Accessibility | WCAG 2.1 AA | PatternFly + custom ARIA |
@@ -48,7 +48,7 @@ Week  Backend (template-agent)              Frontend (template-ui)
  4    ✅ Error Handling & Type Safety        ✅ Core Chat (UI + Sidebar)
  5    ✅ Test Infrastructure                  ✅ Deep Agent Features (Sub-agents)
  6    ✅ Multi-Layer Caching                 ✅ Deep Agent Features (Interrupts)
- 7    Memory & Database                      ✅ Personalization & Settings
+ 7    ✅ Memory & Database                   ✅ Personalization & Settings
  8    Logging & Telemetry                    Resilience & Error Handling
  9    Health & Diagnostics                   UX Polish (Feedback, Editing)
 10    Developer Experience (CLI)             UX Polish (Accessibility)
