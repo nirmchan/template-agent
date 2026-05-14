@@ -6,19 +6,24 @@ application and merges core LangGraph Platform routes onto it.
 
 When Langfuse credentials are absent, submissions are logged and accepted
 without contacting Langfuse.
+
+When ``thread_id`` and ``message_id`` are present, feedback is also
+persisted to Postgres for cross-session history.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from deep_agent.aegra.telemetry import get_langfuse_client
+from deep_agent.src.feedback.repository import FeedbackRepository
 from deep_agent.src.schema import FeedbackRequest, FeedbackResponse
+from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
 logger = get_python_logger()
@@ -26,7 +31,46 @@ logger = get_python_logger()
 app = FastAPI(title="template-agent-custom", docs_url=None, redoc_url=None)
 
 
-def record_feedback(request_data: dict[str, Any]) -> FeedbackResponse:
+def _score_to_feedback_polarity(req: FeedbackRequest) -> Literal["up", "down"]:
+    """Map request name/value to stored feedback polarity."""
+    name_lower = (req.name or "").lower()
+    if "down" in name_lower or "negative" in name_lower:
+        return "down"
+    if "up" in name_lower or "positive" in name_lower:
+        return "up"
+    return "up" if req.value >= 0.5 else "down"
+
+
+async def _persist_feedback_to_postgres(req: FeedbackRequest) -> None:
+    if not req.thread_id or not req.message_id:
+        return
+    if not settings.database_uri:
+        logger.warning(
+            "feedback_postgres_skipped_no_database_uri",
+            thread_id=req.thread_id,
+            message_id=req.message_id,
+        )
+        return
+    polarity = _score_to_feedback_polarity(req)
+    user_id = req.user_id if req.user_id else "anonymous"
+    repo = FeedbackRepository(settings.database_uri)
+    await repo.upsert_feedback(
+        req.thread_id,
+        req.message_id,
+        user_id,
+        polarity,
+        req.trace_id,
+    )
+    logger.info(
+        "feedback_recorded_postgres",
+        thread_id=req.thread_id,
+        message_id=req.message_id,
+        user_id=user_id,
+        feedback=polarity,
+    )
+
+
+async def record_feedback(request_data: dict[str, Any]) -> FeedbackResponse:
     """Validate feedback input, optionally record a Langfuse score, return success.
 
     Args:
@@ -56,6 +100,7 @@ def record_feedback(request_data: dict[str, Any]) -> FeedbackResponse:
             trace_id=req.trace_id,
             name=req.name,
         )
+        await _persist_feedback_to_postgres(req)
         return FeedbackResponse()
 
     try:
@@ -79,6 +124,7 @@ def record_feedback(request_data: dict[str, Any]) -> FeedbackResponse:
         trace_id=req.trace_id,
         name=req.name,
     )
+    await _persist_feedback_to_postgres(req)
     return FeedbackResponse()
 
 
@@ -114,7 +160,7 @@ async def feedback_handler(request: Request) -> JSONResponse:
         )
 
     try:
-        resp = record_feedback(payload)
+        resp = await record_feedback(payload)
     except ValidationError as exc:
         return JSONResponse(
             status_code=422,
@@ -131,6 +177,16 @@ async def feedback_handler(request: Request) -> JSONResponse:
         status_code=200,
         content=resp.model_dump(),
     )
+
+
+@app.get("/feedback/{thread_id}")
+async def get_thread_feedback(thread_id: str, user_id: str = "anonymous"):
+    """Return all feedback for a thread."""
+    if not settings.database_uri:
+        return {"feedback": []}
+    repo = FeedbackRepository(settings.database_uri)
+    items = await repo.list_feedback(thread_id, user_id)
+    return {"feedback": items}
 
 
 app.add_api_route("/feedback", feedback_handler, methods=["POST"])

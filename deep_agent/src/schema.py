@@ -147,6 +147,18 @@ class FeedbackRequest(BaseModel):
         default={},
         examples=[{"comment": "In-line human feedback"}],
     )
+    thread_id: str | None = Field(
+        default=None,
+        description="Thread ID for persistence",
+    )
+    message_id: str | None = Field(
+        default=None,
+        description="Message ID for persistence",
+    )
+    user_id: str | None = Field(
+        default=None,
+        description="User ID for persistence",
+    )
 
 
 class FeedbackResponse(BaseModel):

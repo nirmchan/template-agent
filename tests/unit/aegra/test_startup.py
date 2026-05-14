@@ -70,17 +70,23 @@ class TestEnsureDatabase:
     async def test_db_ok(self):
         mock_settings = MagicMock()
         mock_settings.database_uri = "postgresql://test"
-        mock_repo = AsyncMock()
+        mock_personalization = AsyncMock()
+        mock_feedback = AsyncMock()
         with (
             patch("deep_agent.src.settings.settings", mock_settings),
             patch(
                 "deep_agent.src.personalization.repository.PersonalizationRepository",
-                return_value=mock_repo,
+                return_value=mock_personalization,
+            ),
+            patch(
+                "deep_agent.src.feedback.repository.FeedbackRepository",
+                return_value=mock_feedback,
             ),
         ):
             result = await startup._ensure_database()
         assert result == "ok"
-        mock_repo.ensure_tables.assert_awaited_once()
+        mock_personalization.ensure_tables.assert_awaited_once()
+        mock_feedback.ensure_table.assert_awaited_once()
 
 
 class TestWarmCaches:

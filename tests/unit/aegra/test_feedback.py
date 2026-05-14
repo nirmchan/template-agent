@@ -1,6 +1,6 @@
 """Unit tests for Langfuse feedback recording and HTTP handler."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -11,7 +11,8 @@ from deep_agent.aegra.feedback import app, feedback_handler, record_feedback
 
 
 class TestRecordFeedback:
-    def test_records_score_when_langfuse_configured(self):
+    @pytest.mark.asyncio
+    async def test_records_score_when_langfuse_configured(self):
         mock_client = MagicMock()
         payload = {
             "trace_id": "abcd1234" * 4,
@@ -24,7 +25,7 @@ class TestRecordFeedback:
             "deep_agent.aegra.feedback.get_langfuse_client",
             return_value=mock_client,
         ):
-            result = record_feedback(payload)
+            result = await record_feedback(payload)
 
         assert result.status == "success"
         mock_client.score.assert_called_once_with(
@@ -34,7 +35,8 @@ class TestRecordFeedback:
             comment="great",
         )
 
-    def test_graceful_degradation_when_langfuse_unconfigured(self):
+    @pytest.mark.asyncio
+    async def test_graceful_degradation_when_langfuse_unconfigured(self):
         payload = {
             "trace_id": "abcd1234" * 4,
             "name": "thumbs-up",
@@ -45,15 +47,17 @@ class TestRecordFeedback:
             "deep_agent.aegra.feedback.get_langfuse_client",
             return_value=None,
         ):
-            result = record_feedback(payload)
+            result = await record_feedback(payload)
 
         assert result.status == "success"
 
-    def test_validation_error_on_missing_fields(self):
+    @pytest.mark.asyncio
+    async def test_validation_error_on_missing_fields(self):
         with pytest.raises(ValidationError):
-            record_feedback({})
+            await record_feedback({})
 
-    def test_raises_runtime_error_when_score_fails(self):
+    @pytest.mark.asyncio
+    async def test_raises_runtime_error_when_score_fails(self):
         mock_client = MagicMock()
         mock_client.score.side_effect = RuntimeError("network")
 
@@ -68,7 +72,60 @@ class TestRecordFeedback:
             return_value=mock_client,
         ):
             with pytest.raises(RuntimeError, match="Langfuse score submission failed"):
-                record_feedback(payload)
+                await record_feedback(payload)
+
+    @pytest.mark.asyncio
+    async def test_persists_postgres_when_thread_and_message_present(self):
+        payload = {
+            "trace_id": "a" * 32,
+            "name": "user-rating",
+            "value": 1.0,
+            "thread_id": "thread-1",
+            "message_id": "msg-1",
+            "user_id": "user-42",
+        }
+        mock_upsert = AsyncMock()
+        mock_repo = MagicMock()
+        mock_repo.upsert_feedback = mock_upsert
+
+        with patch(
+            "deep_agent.aegra.feedback.get_langfuse_client",
+            return_value=None,
+        ):
+            with patch(
+                "deep_agent.aegra.feedback.FeedbackRepository",
+                return_value=mock_repo,
+            ):
+                result = await record_feedback(payload)
+
+        assert result.status == "success"
+        mock_upsert.assert_awaited_once_with(
+            "thread-1",
+            "msg-1",
+            "user-42",
+            "up",
+            "a" * 32,
+        )
+
+    @pytest.mark.asyncio
+    async def test_skips_postgres_when_thread_or_message_missing(self):
+        payload = {
+            "trace_id": "a" * 32,
+            "name": "user-rating",
+            "value": 0.2,
+        }
+
+        with patch(
+            "deep_agent.aegra.feedback.get_langfuse_client",
+            return_value=None,
+        ):
+            with patch(
+                "deep_agent.aegra.feedback.FeedbackRepository",
+            ) as mock_repo_cls:
+                result = await record_feedback(payload)
+
+        assert result.status == "success"
+        mock_repo_cls.assert_not_called()
 
 
 class TestFeedbackHandler:
@@ -109,3 +166,22 @@ class TestFeedbackHandler:
             res = client.post("/feedback", json=payload)
         assert res.status_code == 200
         assert res.json() == {"status": "success"}
+
+    def test_get_thread_feedback(self):
+        client = TestClient(app)
+
+        mock_repo = MagicMock()
+        mock_repo.list_feedback = AsyncMock(
+            return_value=[{"message_id": "m1", "feedback": "up"}]
+        )
+        with patch(
+            "deep_agent.aegra.feedback.FeedbackRepository",
+            return_value=mock_repo,
+        ):
+            res = client.get(
+                "/feedback/thread-1",
+                params={"user_id": "u1"},
+            )
+        assert res.status_code == 200
+        assert res.json() == {"feedback": [{"message_id": "m1", "feedback": "up"}]}
+        mock_repo.list_feedback.assert_awaited_once_with("thread-1", "u1")
