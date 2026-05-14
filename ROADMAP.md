@@ -51,7 +51,7 @@ Week  Backend (template-agent)              Frontend (template-ui)
  7    ✅ Memory & Database                   ✅ Personalization & Settings
  8    ✅ Logging & Telemetry                 ✅ Resilience & Error Handling
  9    ✅ Health & Diagnostics                ✅ UX Polish (Feedback, Editing)
-10    Developer Experience (CLI)             UX Polish (Accessibility)
+10    Developer Experience (CLI)             ✅ UX Polish (Accessibility)
 11    DeepAgents: Agent Types & Middleware   Production Hardening (OTEL, Security)
 12    DeepAgents: Filesystem Abstraction     Testing & Quality
 13    DeepAgents: Providers & Async Tasks    ─ (buffer / polish)
@@ -598,17 +598,22 @@ Completed: 2026-05-13
 - Frontend: 3 new files, 14 modified files, build verified clean
 - Added `@patternfly/react-table` dependency for custom data renderer
 
-#### Navigation & Discovery (MRs 75-78)
-- [ ] MR-75: Add keyboard shortcuts (2h)
-- [ ] MR-76: Add keyboard shortcuts help dialog (2h)
-- [ ] MR-77: Add export conversation (2h)
-- [ ] MR-78: Add agent health indicator (2h)
+#### Navigation & Discovery (MRs 75-78) — ✅ COMPLETE
+- [x] MR-75: Add keyboard shortcuts — `useKeyboardShortcuts.ts` hook with layered listener; `/` focus input, `Esc` cancel/blur, `Ctrl+N` new chat, `Ctrl+Shift+S` settings, `?` help dialog, `Ctrl+Shift+E` export
+- [x] MR-76: Add keyboard shortcuts help dialog — `KeyboardShortcutsDialog.tsx` PatternFly Modal with styled `<kbd>` elements, toggled via `?` key
+- [x] MR-77: Add export conversation — `export-chat.ts` with Markdown/JSON export + `downloadFile`; PatternFly Dropdown in ChatMessagesView with Download icon
+- [x] MR-78: Add agent health indicator — `useAgentHealth.ts` polls `/api/health/agent` every 30s; green/red/gray dot in Sidebar with Tooltip
 
-#### Accessibility (MRs 79-80)
-- [ ] MR-79: Add WCAG 2.1 AA keyboard navigation (3h)
-- [ ] MR-80: Add ARIA labels and screen reader support (3h)
+#### Accessibility (MRs 79-80) — ✅ COMPLETE
+- [x] MR-79: Add WCAG 2.1 AA keyboard navigation — Skip-to-main link, focus management on route change, sidebar `role="listbox"` with Arrow/Enter/Space navigation, global `:focus-visible` outlines
+- [x] MR-80: Add ARIA labels and screen reader support — `role="log"` + `aria-live="polite"` on message list, `role="article"` per message, `aria-label` on all interactive elements (input, send, cancel, feedback, delete, settings, logout), `aria-pressed` on feedback buttons, `sr-only` live region for stream status announcements, ARIA on ErrorRecovery/InterruptBanner/TodoStrip/McpStatusPanel
 
-**Milestone (partial):** ✅ Feedback system with Langfuse score integration, message editing, thinking blocks, copy actions, latency indicator, custom data renderer. Remaining: navigation, keyboard shortcuts, accessibility.
+#### Additional deliverables
+- `InputForm` converted to `forwardRef` for focus management
+- `global.css`: skip link visibility, focus-visible outline with PF brand token
+- 4 new files, 11 modified files, build verified clean
+
+**Milestone:** ✅ UX Polish complete. Feedback with Langfuse scores, message editing, thinking blocks, copy actions, latency indicator, custom data renderer, keyboard shortcuts, export, agent health, WCAG 2.1 AA accessibility.
 
 ---
 
