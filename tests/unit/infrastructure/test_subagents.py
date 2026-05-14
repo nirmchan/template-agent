@@ -49,7 +49,7 @@ class TestLoadSubagents:
                 "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "deep_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
             ) as mock_create_model,
             patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
@@ -67,7 +67,9 @@ class TestLoadSubagents:
             result = load_subagents(tools=[])
 
             assert result == [mock_subagent]
-            mock_create_model.assert_called_once_with(model_name="gemini-2.5-flash")
+            mock_create_model.assert_called_once_with(
+                model_name="gemini-2.5-flash"
+            )  # now get_or_create_model
             mock_sa.assert_called_once_with(
                 name="analyst",
                 model=mock_model,
@@ -90,7 +92,7 @@ class TestLoadSubagents:
                 "deep_agent.src.infrastructure.subagents.agent_config.resolve_tools"
             ) as mock_resolve_tools,
             patch(
-                "deep_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
             ) as mock_create_model,
             patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
@@ -132,7 +134,7 @@ class TestLoadSubagents:
                 "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "deep_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
             ) as mock_create_model,
             patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
@@ -171,7 +173,7 @@ class TestLoadSubagents:
                 "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "deep_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
             ) as mock_create_model,
             patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
@@ -211,7 +213,7 @@ class TestLoadSubagents:
                 "deep_agent.src.infrastructure.subagents.agent_config.resolve_tools"
             ) as mock_resolve_tools,
             patch(
-                "deep_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
             ) as mock_create_model,
             patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):
@@ -249,7 +251,7 @@ class TestLoadSubagents:
                 "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
             ) as mock_get_configs,
             patch(
-                "deep_agent.src.infrastructure.subagents.create_model"
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
             ) as mock_create_model,
             patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
         ):

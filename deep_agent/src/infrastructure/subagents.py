@@ -19,7 +19,7 @@ from typing import Any
 from deepagents import SubAgent
 
 from deep_agent.src.agent.config import agent_config
-from deep_agent.src.agent.llm import create_model
+from deep_agent.src.cache.model_cache import get_or_create_model
 from deep_agent.src.exceptions import LLMError, SubAgentError
 from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
@@ -106,7 +106,7 @@ def _build_single_subagent(
 
     subagent_params: dict[str, Any] = {
         "name": name,
-        "model": create_model(model_name=model_name),
+        "model": get_or_create_model(model_name=model_name),
         "description": agent_cfg.get("description", ""),
         "system_prompt": agent_cfg.get("body", ""),
     }

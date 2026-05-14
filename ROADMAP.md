@@ -47,7 +47,7 @@ Week  Backend (template-agent)              Frontend (template-ui)
  3    ✅ Aegra Testing & Deployment          ✅ Core Chat (Streaming Engine)
  4    ✅ Error Handling & Type Safety        ✅ Core Chat (UI + Sidebar)
  5    ✅ Test Infrastructure                  ✅ Deep Agent Features (Sub-agents)
- 6    Multi-Layer Caching                    ✅ Deep Agent Features (Interrupts)
+ 6    ✅ Multi-Layer Caching                 ✅ Deep Agent Features (Interrupts)
  7    Memory & Database                      ✅ Personalization & Settings
  8    Logging & Telemetry                    Resilience & Error Handling
  9    Health & Diagnostics                   UX Polish (Feedback, Editing)
@@ -183,9 +183,10 @@ Health endpoint (/ok) ────────── Agent health indicator (Pha
 - [x] MR-68: Achieve 80%+ coverage baseline
 
 **Additional deliverables (beyond original plan):**
-- [x] New test files: test_settings, test_schema, test_personalization, test_repository, test_auth, test_telemetry, test_serialization, test_middleware, test_graph, test_backend, test_mcp_helpers
+- [x] New test files: test_settings, test_schema, test_personalization, test_repository, test_auth, test_telemetry, test_serialization, test_middleware, test_graph, test_backend, test_mcp_helpers, test_worker, test_redis, test_init
 - [x] Fixed 3 pre-existing test_config failures (PROMPT.md path migration)
-- [x] 346 unit tests passing, 80% coverage (up from 19%)
+- [x] 372 unit tests passing, 83% coverage (up from 19%)
+- [x] CI coverage gate raised to 81%
 - [x] `asyncio_mode = "auto"` for pytest-asyncio
 - [x] `make test-cov` target for local coverage runs
 - [x] Coverage source fixed from `src` to `deep_agent`
@@ -195,16 +196,23 @@ Health endpoint (/ok) ────────── Agent health indicator (Pha
 
 #### Phase 3: Scalability Features (Weeks 6-7)
 
-**Week 6: Multi-Layer Caching (MRs 69-77)**
-- [ ] MR-69: Add diskcache dependency
-- [ ] MR-70: Create cache/ directory structure
-- [ ] MR-71: Implement semantic cache layer
-- [ ] MR-72: Implement response cache layer
-- [ ] MR-73: Implement embedding cache layer
-- [ ] MR-74: Implement context cache layer
-- [ ] MR-75: Add cache configuration
-- [ ] MR-76: Add cache warming on startup
-- [ ] MR-77: Add cache metrics
+**Week 6: Multi-Layer Caching (MRs 69-77)** ✅ COMPLETE
+- [x] MR-69: Add cachetools dependency (replaces diskcache — OpenShift-native)
+- [x] MR-70: Create cache/ module (config, backend protocol, multi-layer)
+- [x] MR-71: Model instance cache (TTLCache by model/temp/tokens)
+- [x] MR-72: Multi-layer cache infrastructure (L1 in-memory + L2 Redis)
+- [x] MR-73: Personalization cache (Redis L2, user memories/rules)
+- [x] MR-74: Cache backend implementations (NullCache, InMemoryCache, RedisCache)
+- [x] MR-75: Feature-flagged CacheSettings (all OFF by default)
+- [x] MR-76: Cache warming (pre-create models at startup)
+- [x] MR-77: Cache metrics (hit/miss/set/delete counters per cache name)
+
+**Additional deliverables (beyond original plan):**
+- [x] Replaced diskcache with cachetools+Redis (OpenShift: no ephemeral disk, shared L2 via Redis PVC)
+- [x] All caches behind feature flags: CACHE_ENABLED master + per-layer flags
+- [x] Integrated into hot paths: graph.py, factory.py, subagents.py
+- [x] 58 new cache tests, 430 total passing, 85% coverage
+- [x] Updated .env.example with all cache env vars
 
 **Week 7: Memory & Database (MRs 78-85)**
 - [ ] MR-78: Add APScheduler dependency

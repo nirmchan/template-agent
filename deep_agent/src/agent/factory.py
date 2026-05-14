@@ -17,7 +17,7 @@ from deepagents.backends import LocalShellBackend
 from langgraph.graph.state import CompiledStateGraph
 
 from deep_agent.src.agent.config import agent_config
-from deep_agent.src.agent.llm import create_model
+from deep_agent.src.cache.model_cache import get_or_create_model
 from deep_agent.src.exceptions import ConfigurationError
 from deep_agent.src.infrastructure.backend import get_backend
 from deep_agent.src.infrastructure.checkpointer import get_checkpointer
@@ -68,7 +68,7 @@ async def get_deep_agent(
         f"Initializing orchestrator agent '{agent_name}' with model: {model_name}"
     )
 
-    model = create_model(model_name=model_name)
+    model = get_or_create_model(model_name=model_name)
 
     if sso_token:
         from deep_agent.src.infrastructure.mcp import refresh_access_token

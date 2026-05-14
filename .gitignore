@@ -209,8 +209,7 @@ langfuse_data/
 jaeger_data/
 otel_data/
 
-# Cache directories (MR-69-77: Multi-layer caching)
-cache/
+# Runtime cache data (not source code)
 .cache/
 diskcache/
 *.cache

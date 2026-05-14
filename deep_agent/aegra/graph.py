@@ -72,7 +72,7 @@ async def agent(runtime: ServerRuntime) -> Any:
     from deepagents import create_deep_agent
 
     from deep_agent.src.agent.config import agent_config
-    from deep_agent.src.agent.llm import create_model
+    from deep_agent.src.cache.model_cache import get_or_create_model
     from deep_agent.src.infrastructure.backend import get_backend
     from deep_agent.src.infrastructure.mcp import get_mcp_tools, refresh_access_token
     from deep_agent.src.infrastructure.subagents import load_subagents
@@ -94,25 +94,42 @@ async def agent(runtime: ServerRuntime) -> Any:
     user_identity = getattr(user, "identity", None) if user else None
     if user_identity:
         try:
+            from deep_agent.src.cache.personalization_cache import (
+                get_personalization,
+                set_personalization,
+            )
             from deep_agent.src.personalization.injector import inject_personalization
             from deep_agent.src.personalization.repository import (
                 PersonalizationRepository,
             )
             from deep_agent.src.settings import settings as app_settings
 
-            repo = PersonalizationRepository(app_settings.database_uri)
-            memories = await repo.list_memories(user_identity)
-            rules = await repo.list_rules(user_identity, active_only=True)
+            cached = await get_personalization(user_identity)
+            if cached is not None:
+                mem_contents = [m["content"] for m in cached[0]]
+                rule_contents = [r["content"] for r in cached[1]]
+            else:
+                repo = PersonalizationRepository(app_settings.database_uri)
+                memories = await repo.list_memories(user_identity)
+                rules = await repo.list_rules(user_identity, active_only=True)
+                mem_contents = [m.content for m in memories]
+                rule_contents = [r.content for r in rules]
+                await set_personalization(
+                    user_identity,
+                    [{"content": m.content} for m in memories],
+                    [{"content": r.content} for r in rules],
+                )
+
             system_prompt = inject_personalization(
                 system_prompt,
-                [m.content for m in memories],
-                [r.content for r in rules],
+                mem_contents,
+                rule_contents,
             )
-            if memories or rules:
+            if mem_contents or rule_contents:
                 logger.info(
                     "Personalization injected: %d memories, %d rules",
-                    len(memories),
-                    len(rules),
+                    len(mem_contents),
+                    len(rule_contents),
                 )
         except Exception:
             logger.debug(
@@ -126,7 +143,7 @@ async def agent(runtime: ServerRuntime) -> Any:
         bool(sso_token),
     )
 
-    model = create_model(model_name=model_name)
+    model = get_or_create_model(model_name=model_name)
     mcp_tools = await get_mcp_tools(sso_token=sso_token)
     tools = agent_config.resolve_tools(tool_names, mcp_tools, agent_name=agent_name)
     subagents = load_subagents(tools=mcp_tools)
