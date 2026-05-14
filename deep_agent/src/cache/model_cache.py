@@ -10,15 +10,15 @@ only — no Redis layer.
 Feature flag: ``CACHE_MODEL_ENABLED`` (+ master ``CACHE_ENABLED``).
 """
 
-import logging
 import threading
 
 from cachetools import TTLCache  # type: ignore[import-untyped]
 
 from deep_agent.src.cache import metrics
 from deep_agent.src.cache.config import cache_settings
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 _CacheKey = tuple[str, float, int]
 

@@ -1,12 +1,33 @@
-"""Structured logger utility for the Template MCP server."""
+"""Structured logger utility for the template-agent.
+
+Provides a single ``get_python_logger()`` entry point that returns a
+structlog ``BoundLogger``.  All log output is structured JSON by default
+(production), with an optional human-readable console renderer for
+local development.
+
+Environment variables:
+    LOG_FORMAT: ``json`` (default) or ``console``
+    PYTHON_LOG_LEVEL: standard level name (default: INFO)
+
+Context binding:
+    ``bind_request_context(request_id, user_id, thread_id)`` adds
+    per-request fields to every subsequent log line in the same
+    async context.  Call at request entry; structlog's context-var
+    support auto-clears on context exit.
+"""
 
 import logging
+import os
 import sys
-from typing import Any, Dict, List, Set
+from contextvars import ContextVar
+from typing import Any
 
 import structlog
 
-# HTTP clients
+# ---------------------------------------------------------------------------
+# Third-party logger noise suppression
+# ---------------------------------------------------------------------------
+
 HTTP_CLIENT_LOGGERS = {
     "urllib3",
     "urllib3.connectionpool",
@@ -16,7 +37,6 @@ HTTP_CLIENT_LOGGERS = {
     "httpx",
 }
 
-# AWS SDK
 AWS_LOGGERS = {
     "botocore",
     "botocore.client",
@@ -26,7 +46,6 @@ AWS_LOGGERS = {
     "boto3.resources",
 }
 
-# MCP (custom platform)
 MCP_LOGGERS = {
     "fastmcp",
     "fastmcp.server",
@@ -37,7 +56,6 @@ MCP_LOGGERS = {
     "fastmcp.transports",
 }
 
-# ML/AI frameworks
 ML_AI_LOGGERS = {
     "sentence_transformers",
     "transformers",
@@ -53,7 +71,6 @@ ML_AI_LOGGERS = {
     "torch.nn",
 }
 
-# Observability / telemetry
 OBSERVABILITY_LOGGERS = {
     "langfuse",
     "langfuse.client",
@@ -61,14 +78,11 @@ OBSERVABILITY_LOGGERS = {
     "langfuse.callback",
 }
 
-# Known-noisy loggers silenced to CRITICAL
 SILENT_LOGGERS = {
     "opentelemetry.context",
 }
 
-# --- Aggregated Sets ---
-
-THIRD_PARTY_LOGGERS: Set[str] = (
+THIRD_PARTY_LOGGERS: set[str] = (
     HTTP_CLIENT_LOGGERS
     | AWS_LOGGERS
     | MCP_LOGGERS
@@ -77,16 +91,70 @@ THIRD_PARTY_LOGGERS: Set[str] = (
     | SILENT_LOGGERS
 )
 
-ERROR_ONLY_LOGGERS: Set[str] = ML_AI_LOGGERS | OBSERVABILITY_LOGGERS
+ERROR_ONLY_LOGGERS: set[str] = ML_AI_LOGGERS | OBSERVABILITY_LOGGERS
 
 _LOGGING_CONFIGURED = False
 
-# Eagerly silence known-noisy loggers before any other code can trigger them
+SERVICE_NAME = os.environ.get("SERVICE_NAME", "template-agent")
+LOG_FORMAT = os.environ.get("LOG_FORMAT", "json").lower()
+
 for _name in SILENT_LOGGERS:
     logging.getLogger(_name).setLevel(logging.CRITICAL)
 
+# ---------------------------------------------------------------------------
+# Request context (per-request fields via contextvars)
+# ---------------------------------------------------------------------------
 
-# --- Internal helpers ---
+_request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+_user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
+_thread_id_var: ContextVar[str | None] = ContextVar("thread_id", default=None)
+
+
+def bind_request_context(
+    request_id: str | None = None,
+    user_id: str | None = None,
+    thread_id: str | None = None,
+) -> None:
+    """Bind per-request identifiers into the logging context.
+
+    Call this once at request entry. The values are automatically
+    injected into every log line within the same async context.
+    """
+    if request_id:
+        _request_id_var.set(request_id)
+    if user_id:
+        _user_id_var.set(user_id)
+    if thread_id:
+        _thread_id_var.set(thread_id)
+
+
+def clear_request_context() -> None:
+    """Reset request context (called at request exit)."""
+    _request_id_var.set(None)
+    _user_id_var.set(None)
+    _thread_id_var.set(None)
+
+
+def _inject_request_context(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Structlog processor: inject request context vars into every log event."""
+    rid = _request_id_var.get()
+    uid = _user_id_var.get()
+    tid = _thread_id_var.get()
+    if rid:
+        event_dict["request_id"] = rid
+    if uid:
+        event_dict["user_id"] = uid
+    if tid:
+        event_dict["thread_id"] = tid
+    event_dict["service"] = SERVICE_NAME
+    return event_dict
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 
 def _clear_handlers(logger: logging.Logger) -> None:
@@ -95,38 +163,50 @@ def _clear_handlers(logger: logging.Logger) -> None:
 
 
 def _setup_logger(logger_name: str, level: str) -> None:
-    logger = logging.getLogger(logger_name)
-    _clear_handlers(logger)
+    lgr = logging.getLogger(logger_name)
+    _clear_handlers(lgr)
     if logger_name in SILENT_LOGGERS:
-        logger.setLevel(logging.CRITICAL)
+        lgr.setLevel(logging.CRITICAL)
     elif logger_name in ERROR_ONLY_LOGGERS:
-        logger.setLevel(logging.ERROR)
+        lgr.setLevel(logging.ERROR)
     else:
-        logger.setLevel(level)
-    logger.propagate = True
+        lgr.setLevel(level)
+    lgr.propagate = True
 
 
 def _configure_third_party_loggers(log_level: str) -> None:
     """Apply structured logging to selected third-party loggers."""
     logging.getLogger().handlers.clear()
-
     for name in THIRD_PARTY_LOGGERS:
         _setup_logger(name, log_level)
 
 
-# --- Public API ---
+def _get_renderer() -> Any:
+    """Return the appropriate structlog renderer based on LOG_FORMAT."""
+    if LOG_FORMAT == "console":
+        return structlog.dev.ConsoleRenderer(colors=True)
+    return structlog.processors.JSONRenderer()
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def force_reconfigure_all_loggers(log_level: str = "INFO") -> None:
     """Force logger reconfiguration, even if already initialized."""
-    global _LOGGING_CONFIGURED
+    global _LOGGING_CONFIGURED  # noqa: PLW0603
     _LOGGING_CONFIGURED = False
     get_python_logger(log_level)
 
 
 def get_python_logger(log_level: str = "INFO") -> structlog.BoundLogger:
-    """Get a configured structlog logger."""
-    global _LOGGING_CONFIGURED
+    """Get a configured structlog logger.
+
+    First call configures the entire logging pipeline. Subsequent
+    calls return cached loggers from structlog.
+    """
+    global _LOGGING_CONFIGURED  # noqa: PLW0603
     log_level = log_level.upper()
 
     if not _LOGGING_CONFIGURED:
@@ -143,10 +223,11 @@ def get_python_logger(log_level: str = "INFO") -> structlog.BoundLogger:
                 structlog.stdlib.add_log_level,
                 structlog.stdlib.PositionalArgumentsFormatter(),
                 structlog.processors.TimeStamper(fmt="iso"),
+                _inject_request_context,
                 structlog.processors.StackInfoRenderer(),
                 structlog.processors.format_exc_info,
                 structlog.processors.UnicodeDecoder(),
-                structlog.processors.JSONRenderer(),
+                _get_renderer(),
             ],
             context_class=dict,
             logger_factory=structlog.stdlib.LoggerFactory(),
@@ -160,22 +241,25 @@ def get_python_logger(log_level: str = "INFO") -> structlog.BoundLogger:
     return structlog.get_logger()
 
 
-def get_uvicorn_log_config(log_level: str = "INFO") -> Dict[str, Any]:
+def get_uvicorn_log_config(log_level: str = "INFO") -> dict[str, Any]:
     """Return a Uvicorn-compatible logging config that integrates with structlog."""
     log_level = log_level.upper()
+    renderer = _get_renderer()
+
     default_formatter = {
         "()": "structlog.stdlib.ProcessorFormatter",
-        "processor": structlog.processors.JSONRenderer(),
+        "processor": renderer,
         "foreign_pre_chain": [
             structlog.stdlib.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
+            _inject_request_context,
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
         ],
     }
 
-    def make_logger_config(names: List[str], level: str) -> Dict[str, Any]:
+    def make_logger_config(names: list[str], level: str) -> dict[str, Any]:
         return {
             name: {
                 "handlers": ["default"],
@@ -185,7 +269,6 @@ def get_uvicorn_log_config(log_level: str = "INFO") -> Dict[str, Any]:
             for name in names
         }
 
-    # Passthrough formatter for structlog-originated messages (already rendered)
     passthrough_formatter = {"format": "%(message)s"}
 
     uvicorn_loggers = ["uvicorn", "uvicorn.error", "uvicorn.asgi", "uvicorn.protocols"]

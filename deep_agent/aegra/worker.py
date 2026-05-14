@@ -12,11 +12,12 @@ Environment variables:
     AEGRA_GRACEFUL_SHUTDOWN: Seconds to wait for in-flight tasks (default: 30)
 """
 
-import logging
 import os
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 NUM_WORKERS = int(os.environ.get("AEGRA_NUM_WORKERS", "4"))
 MAX_CONCURRENT = int(os.environ.get("AEGRA_MAX_CONCURRENT", "10"))

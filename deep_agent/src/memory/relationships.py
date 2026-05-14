@@ -8,13 +8,13 @@ Runs as a **background job** — never in the request path.
 No LLM calls — pure keyword overlap.
 """
 
-import logging
 import re
 from collections import Counter
 
 from deep_agent.src.memory.config import memory_settings
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 STOPWORDS = frozenset(
     "a an the is are was were be been being have has had do does did "

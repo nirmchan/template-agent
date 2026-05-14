@@ -8,14 +8,14 @@ Runs as a **background job** — never in the request path.
 No embedding API calls — pure local computation.
 """
 
-import logging
 import math
 import uuid
 from collections import Counter, defaultdict
 
 from deep_agent.src.memory.config import memory_settings
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 
 def _tokenize(text: str) -> list[str]:

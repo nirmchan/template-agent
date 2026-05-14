@@ -11,11 +11,12 @@ Environment variables:
     REDIS_RETRY_ON_TIMEOUT: Enable retry (default: true)
 """
 
-import logging
 import os
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 REDIS_MAX_CONNECTIONS = int(os.environ.get("REDIS_MAX_CONNECTIONS", "10"))

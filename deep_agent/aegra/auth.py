@@ -25,7 +25,6 @@ Optional env vars:
 
 import hashlib
 import hmac
-import logging
 import os
 from typing import Any
 
@@ -33,7 +32,9 @@ import httpx
 import jwt
 from langgraph_sdk import Auth
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 auth = Auth()
 

@@ -10,12 +10,13 @@ The active strategy is selected via the ``LANGGRAPH_AUTH_TYPE`` env var.
 
 import hashlib
 import hmac
-import logging
 import os
 import time
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 AUTH_TYPE = os.environ.get("LANGGRAPH_AUTH_TYPE", "noop")
 API_KEY = os.environ.get("LANGGRAPH_API_KEY", "")

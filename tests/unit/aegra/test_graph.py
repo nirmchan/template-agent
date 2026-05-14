@@ -1,8 +1,13 @@
 """Unit tests for aegra graph factory."""
 
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+_runtime_mock = MagicMock()
+if "langgraph_sdk.runtime" not in sys.modules:
+    sys.modules["langgraph_sdk.runtime"] = _runtime_mock
 
 
 class TestAgentFactory:

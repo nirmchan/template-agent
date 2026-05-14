@@ -18,14 +18,15 @@ Environment variables (OpenTelemetry):
     OTEL_EXPORTER_OTLP_ENDPOINT: OTLP collector URL
 """
 
-import logging
 import os
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 OTEL_ENABLED = os.environ.get("OTEL_ENABLED", "false").lower() == "true"
 OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "template-agent-aegra")

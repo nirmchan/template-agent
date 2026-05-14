@@ -8,14 +8,14 @@ Feature flag: ``CACHE_PERSONALIZATION_ENABLED`` (+ ``CACHE_ENABLED``).
 """
 
 import json
-import logging
 from typing import Any
 
 from deep_agent.src.cache import metrics
 from deep_agent.src.cache.backend import RedisCache
 from deep_agent.src.cache.config import cache_settings
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 _KEY_PREFIX = "personalization:"
 

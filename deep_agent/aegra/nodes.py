@@ -10,7 +10,6 @@ escape the deepagents graph and recording them in platform metadata.
 """
 
 import asyncio
-import logging
 import time
 from collections.abc import Callable
 from functools import wraps
@@ -24,7 +23,9 @@ from tenacity import (
     wait_exponential,
 )
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 MAX_NODE_RETRIES: int = 2
 RETRY_DELAY_SECONDS: float = 1.0

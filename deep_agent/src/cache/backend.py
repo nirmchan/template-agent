@@ -7,13 +7,14 @@ Provides a ``CacheBackend`` protocol and three implementations:
 - ``RedisCache``: Shared cache via the existing ``aegra.redis`` client
 """
 
-import logging
 import threading
 from typing import Any, Protocol, runtime_checkable
 
 from cachetools import TTLCache  # type: ignore[import-untyped]
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 
 @runtime_checkable

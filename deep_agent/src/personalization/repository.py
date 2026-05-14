@@ -7,7 +7,6 @@ LangGraph checkpoints. Tables are created lazily on first use via
 
 from __future__ import annotations
 
-import logging
 import uuid
 from datetime import datetime
 
@@ -15,8 +14,9 @@ import psycopg
 from psycopg.rows import dict_row
 
 from deep_agent.src.personalization.models import Memory, Rule
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 _TABLES_ENSURED = False
 

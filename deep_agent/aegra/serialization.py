@@ -6,7 +6,6 @@ LangChain message objects, tool calls, and nested state structures.
 """
 
 import json
-import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,7 +17,9 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 
 def serialize_message(msg: BaseMessage) -> dict[str, Any]:

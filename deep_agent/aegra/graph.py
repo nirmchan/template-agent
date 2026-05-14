@@ -31,7 +31,6 @@ Aegra automatically provides:
 - Worker architecture with Redis job queue
 """
 
-import logging
 import os
 import sys
 from pathlib import Path
@@ -39,7 +38,9 @@ from typing import Any
 
 from langgraph_sdk.runtime import ServerRuntime
 
-logger = logging.getLogger(__name__)
+from deep_agent.utils.pylogger import get_python_logger
+
+logger = get_python_logger()
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 

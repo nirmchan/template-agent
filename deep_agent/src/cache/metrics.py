@@ -4,13 +4,13 @@ Counters are in-memory per process. When ``CACHE_METRICS_ENABLED``
 is true, periodic summaries are logged at INFO level.
 """
 
-import logging
 import threading
 from typing import Any
 
 from deep_agent.src.cache.config import cache_settings
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 _lock = threading.Lock()
 _counters: dict[str, dict[str, int]] = {}

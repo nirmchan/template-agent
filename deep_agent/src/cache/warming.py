@@ -7,11 +7,10 @@ user request doesn't pay the cold-start penalty.
 Feature flag: ``CACHE_WARMING_ENABLED`` (+ ``CACHE_ENABLED``).
 """
 
-import logging
-
 from deep_agent.src.cache.config import cache_settings
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 
 def warm_caches() -> dict[str, bool]:

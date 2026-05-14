@@ -16,7 +16,7 @@ Usage:
 """
 
 import asyncio
-import logging
+import logging as _logging
 import time
 from collections.abc import Callable
 from functools import wraps
@@ -37,8 +37,9 @@ from deep_agent.src.exceptions import (
     RateLimitError,
     TransientError,
 )
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -344,7 +345,7 @@ def with_fallback(
     fallback_value: Any,
     *,
     on: tuple[type[Exception], ...] = (Exception,),
-    log_level: int = logging.WARNING,
+    log_level: int = _logging.WARNING,
 ) -> Callable[[F], F]:
     """Decorator that returns a fallback value instead of raising.
 

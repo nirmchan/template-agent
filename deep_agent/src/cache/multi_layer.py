@@ -11,12 +11,11 @@ On ``delete``:
     Delete from both L1 and L2
 """
 
-import logging
-
 from deep_agent.src.cache import metrics
 from deep_agent.src.cache.backend import CacheBackend, NullCache
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 
 class MultiLayerCache:

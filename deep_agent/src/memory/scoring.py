@@ -13,13 +13,13 @@ Where:
 This runs as a **background job** — never in the request path.
 """
 
-import logging
 import math
 from datetime import datetime, timezone
 
 from deep_agent.src.memory.config import memory_settings
+from deep_agent.utils.pylogger import get_python_logger
 
-logger = logging.getLogger(__name__)
+logger = get_python_logger()
 
 ACCESS_BOOST = 0.1
 MIN_SCORE = 0.01
