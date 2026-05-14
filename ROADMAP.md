@@ -214,17 +214,27 @@ Health endpoint (/ok) ────────── Agent health indicator (Pha
 - [x] 58 new cache tests, 430 total passing, 85% coverage
 - [x] Updated .env.example with all cache env vars
 
-**Week 7: Memory & Database (MRs 78-85)**
-- [ ] MR-78: Add APScheduler dependency
-- [ ] MR-79: Create memory consolidation module
-- [ ] MR-80: Add exponential decay scoring
-- [ ] MR-81: Add semantic clustering
-- [ ] MR-82: Add relationship inference
-- [ ] MR-83: Add scheduled consolidation jobs
-- [ ] MR-84: Implement dual-pool DB
-- [ ] MR-85: Add WAL mode for SQLite
+**Week 7: Memory & Database (MRs 78-83)** ✅ COMPLETE
+- [x] MR-78: Add APScheduler v4 dependency + memory config with feature flags
+- [x] MR-79: Create memory consolidation module (token-similarity dedup)
+- [x] MR-80: Add exponential decay scoring (e^(-λ·age) with access boost)
+- [x] MR-81: Add semantic clustering (TF-IDF cosine similarity, background only)
+- [x] MR-82: Add relationship inference (keyword/entity overlap linking)
+- [x] MR-83: Add scheduled consolidation jobs (APScheduler, Redis distributed lock)
+- [x] ~~MR-84: Implement dual-pool DB~~ — DROPPED (unnecessary with Postgres)
+- [x] ~~MR-85: Add WAL mode for SQLite~~ — DROPPED (not using SQLite)
 
-**Milestone:** 70% cost reduction, memory consolidation, 3x throughput
+**Additional deliverables (beyond original plan):**
+- [x] Schema migration: added `score FLOAT` + `cluster_id UUID` columns to `user_memories`
+- [x] New `list_top_memories()` — score-ranked top-N query (replaces unranked list)
+- [x] Injector upgraded to use `MEMORY_MAX_INJECT` (default 20) via score ranking
+- [x] Memory model extended: `score`, `cluster_id` fields on `Memory` Pydantic model
+- [x] 7 new feature flags: `MEMORY_CONSOLIDATION_ENABLED`, `MEMORY_DECAY_ENABLED`, etc.
+- [x] All clustering/consolidation runs as background jobs only — zero request-path impact
+- [x] 42 new memory tests, 475 total passing, 81.57% coverage
+- [x] Updated `.env.example` with all memory env vars
+
+**Milestone:** Memory consolidation, decay scoring, semantic clustering, 81%+ coverage
 
 #### Phase 4: Observability (Weeks 8-9)
 

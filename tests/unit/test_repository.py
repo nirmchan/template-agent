@@ -47,7 +47,7 @@ class TestEnsureTables:
             return_value=mock_conn,
         ):
             await repo.ensure_tables()
-            assert mock_conn.execute.call_count == 2
+            assert mock_conn.execute.call_count == 3
             mock_conn.commit.assert_awaited_once()
 
     @pytest.mark.asyncio

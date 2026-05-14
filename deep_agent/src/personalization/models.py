@@ -14,6 +14,8 @@ class Memory(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     user_id: str
     content: str
+    score: float = Field(default=1.0)
+    cluster_id: uuid.UUID | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

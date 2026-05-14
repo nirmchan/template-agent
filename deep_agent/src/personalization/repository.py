@@ -25,11 +25,18 @@ CREATE TABLE IF NOT EXISTS user_memories (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     TEXT NOT NULL,
     content     TEXT NOT NULL,
+    score       FLOAT NOT NULL DEFAULT 1.0,
+    cluster_id  UUID,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_user_memories_user_id
     ON user_memories (user_id);
+"""
+
+MIGRATE_MEMORIES_TABLE = """
+ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS score FLOAT NOT NULL DEFAULT 1.0;
+ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS cluster_id UUID;
 """
 
 CREATE_RULES_TABLE = """
@@ -61,6 +68,7 @@ class PersonalizationRepository:
         async with await psycopg.AsyncConnection.connect(self._uri) as conn:
             await conn.execute(CREATE_MEMORIES_TABLE)
             await conn.execute(CREATE_RULES_TABLE)
+            await conn.execute(MIGRATE_MEMORIES_TABLE)
             await conn.commit()
         _TABLES_ENSURED = True
         logger.info("Personalization tables ensured")
@@ -76,6 +84,19 @@ class PersonalizationRepository:
             cur = await conn.execute(
                 "SELECT * FROM user_memories WHERE user_id = %s ORDER BY created_at DESC",
                 (user_id,),
+            )
+            return [Memory(**row) for row in await cur.fetchall()]
+
+    async def list_top_memories(self, user_id: str, limit: int = 20) -> list[Memory]:
+        """Return top-N memories for *user_id*, ranked by score descending."""
+        await self.ensure_tables()
+        async with await psycopg.AsyncConnection.connect(
+            self._uri, row_factory=dict_row
+        ) as conn:
+            cur = await conn.execute(
+                "SELECT * FROM user_memories WHERE user_id = %s "
+                "ORDER BY score DESC, updated_at DESC LIMIT %s",
+                (user_id, limit),
             )
             return [Memory(**row) for row in await cur.fetchall()]
 

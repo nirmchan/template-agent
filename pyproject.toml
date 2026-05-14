@@ -33,6 +33,7 @@ dependencies = [
     "tenacity>=8.2.0,<10",
     "redis>=5.0.0,<7",
     "cachetools>=5.5.0,<6",
+    "apscheduler>=4.0.0a5",
 ]
 
 [project.optional-dependencies]

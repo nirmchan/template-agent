@@ -98,6 +98,7 @@ async def agent(runtime: ServerRuntime) -> Any:
                 get_personalization,
                 set_personalization,
             )
+            from deep_agent.src.memory.config import memory_settings
             from deep_agent.src.personalization.injector import inject_personalization
             from deep_agent.src.personalization.repository import (
                 PersonalizationRepository,
@@ -110,7 +111,8 @@ async def agent(runtime: ServerRuntime) -> Any:
                 rule_contents = [r["content"] for r in cached[1]]
             else:
                 repo = PersonalizationRepository(app_settings.database_uri)
-                memories = await repo.list_memories(user_identity)
+                max_inject = memory_settings.MEMORY_MAX_INJECT
+                memories = await repo.list_top_memories(user_identity, limit=max_inject)
                 rules = await repo.list_rules(user_identity, active_only=True)
                 mem_contents = [m.content for m in memories]
                 rule_contents = [r.content for r in rules]
