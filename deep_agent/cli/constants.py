@@ -2,9 +2,9 @@
 
 import os
 
-CLI_NAME = "ask"
+CLI_NAME = os.environ.get("CLI_NAME", "ask")
 CONFIG_DIR_NAME = CLI_NAME
-APP_DESCRIPTION = "CLI chat client for Deep Agent"
+APP_DESCRIPTION = f"{CLI_NAME} — CLI chat client for Deep Agent"
 
 CLI_INSTALL_HINT = "CLI dependencies not installed. Run: pip install -e '.[cli]'"
 
