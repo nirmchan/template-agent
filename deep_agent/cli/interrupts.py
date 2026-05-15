@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from deep_agent.utils.pylogger import get_python_logger
+from deep_agent.cli._log import get_logger
 
-logger = get_python_logger()
+logger = get_logger()
 
 
 def check_for_interrupt(thread_state: dict[str, Any]) -> dict[str, Any] | None:

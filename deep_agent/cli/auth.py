@@ -16,10 +16,10 @@ import httpx
 import jwt
 from rich.prompt import Prompt
 
+from deep_agent.cli._log import get_logger
 from deep_agent.cli.constants import CLI_NAME, LOGIN_REQUIRED_MSG
-from deep_agent.utils.pylogger import get_python_logger
 
-logger = get_python_logger()
+logger = get_logger()
 
 _DEFAULT_DISCOVER_TIMEOUT = 15.0
 

@@ -8,9 +8,9 @@ from typing import Any, Optional
 
 import httpx
 
-from deep_agent.utils.pylogger import get_python_logger
+from deep_agent.cli._log import get_logger
 
-logger = get_python_logger()
+logger = get_logger()
 
 _DEFAULT_TIMEOUT = 30.0
 

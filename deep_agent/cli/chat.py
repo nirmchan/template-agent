@@ -6,10 +6,10 @@ import json
 import uuid
 from typing import Any, AsyncIterator, Optional
 
+from deep_agent.cli._log import get_logger
 from deep_agent.cli.auth import auth_headers_for_request, get_valid_token
-from deep_agent.utils.pylogger import get_python_logger
 
-logger = get_python_logger()
+logger = get_logger()
 
 
 async def stream_agent_response(
