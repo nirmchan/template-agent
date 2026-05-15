@@ -1,4 +1,4 @@
-.PHONY: local dev test clean deploy undeploy demo install-cli
+.PHONY: local dev test clean deploy undeploy demo
 
 # OpenShift namespace (can be overridden: make deploy openshift NAMESPACE=my-project)
 NAMESPACE ?= $(shell oc project -q 2>/dev/null)
@@ -98,13 +98,6 @@ local-with-mock:
 	@echo "  Terminal 2: make local"
 	@echo ""
 	@echo "Or use podman-compose to run everything together"
-
-install-cli: ## Install CLI extras (typer + rich) for the `ask` command
-	@echo "Installing CLI dependencies..."
-	@test -d .venv || uv venv
-	@. .venv/bin/activate && uv pip install -e ".[cli,dev]"
-	@echo "CLI installed. Enable with: export ENABLE_CLI=true"
-	@echo "Usage: ask --help"
 
 local:
 	@echo "Setting up local environment..."

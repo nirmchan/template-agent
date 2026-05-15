@@ -7,7 +7,6 @@ from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.testclient import TestClient
 
-from deep_agent.aegra import feedback as feedback_mod
 from deep_agent.aegra.feedback import app, feedback_handler, record_feedback
 
 
@@ -186,44 +185,3 @@ class TestFeedbackHandler:
         assert res.status_code == 200
         assert res.json() == {"feedback": [{"message_id": "m1", "feedback": "up"}]}
         mock_repo.list_feedback.assert_awaited_once_with("thread-1", "u1")
-
-
-class TestAuthDiscover:
-    def test_auth_discover_none_when_auth_off(self):
-        client = TestClient(app)
-        with (
-            patch.object(feedback_mod, "ENABLE_AUTH", False),
-            patch.object(feedback_mod, "AUTH_TYPE", "noop"),
-            patch.object(feedback_mod, "SSO_ISSUER_URL", ""),
-            patch.object(feedback_mod, "SSO_CLIENT_ID", ""),
-        ):
-            res = client.get("/auth/discover")
-        assert res.status_code == 200
-        body = res.json()
-        assert body["auth_type"] == "none"
-        assert body["authorization_endpoint"] == ""
-        assert body["scopes"] == ["openid"]
-
-    def test_auth_discover_api_key_overrides(self):
-        client = TestClient(app)
-        with (
-            patch.object(feedback_mod, "ENABLE_AUTH", False),
-            patch.object(feedback_mod, "AUTH_TYPE", "api_key"),
-        ):
-            res = client.get("/auth/discover")
-        assert res.json()["auth_type"] == "api_key"
-
-    def test_auth_discover_sso_when_enabled(self):
-        client = TestClient(app)
-        with (
-            patch.object(feedback_mod, "ENABLE_AUTH", True),
-            patch.object(feedback_mod, "AUTH_TYPE", "noop"),
-            patch.object(feedback_mod, "SSO_ISSUER_URL", "https://idp.example/realm"),
-            patch.object(feedback_mod, "SSO_CLIENT_ID", "cli-test"),
-        ):
-            res = client.get("/auth/discover")
-        data = res.json()
-        assert data["auth_type"] == "sso"
-        assert data["client_id"] == "cli-test"
-        assert data["authorization_endpoint"].endswith("/protocol/openid-connect/auth")
-        assert data["token_endpoint"].endswith("/protocol/openid-connect/token")

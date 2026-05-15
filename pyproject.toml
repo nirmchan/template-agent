@@ -37,10 +37,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cli = [
-    "typer>=0.15.0",
-    "rich>=14.0.0",
-]
 dev = [
     "pytest==8.4.1",
     "pytest-asyncio==1.0.0",
@@ -51,9 +47,6 @@ dev = [
     "pre-commit==4.2.0",
     "httpx==0.28.1",
 ]
-
-[project.scripts]
-ask = "deep_agent.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/redhat-data-and-ai/template-agent"
