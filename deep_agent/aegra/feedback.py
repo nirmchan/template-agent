@@ -20,6 +20,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from deep_agent.aegra.auth import ENABLE_AUTH, SSO_CLIENT_ID, SSO_ISSUER_URL
+from deep_agent.aegra.middleware import AUTH_TYPE
 from deep_agent.aegra.telemetry import get_langfuse_client
 from deep_agent.src.feedback.repository import FeedbackRepository
 from deep_agent.src.schema import FeedbackRequest, FeedbackResponse
@@ -29,6 +31,24 @@ from deep_agent.utils.pylogger import get_python_logger
 logger = get_python_logger()
 
 app = FastAPI(title="template-agent-custom", docs_url=None, redoc_url=None)
+
+
+@app.get("/auth/discover")
+async def auth_discover() -> dict[str, Any]:
+    """Expose auth mode and OIDC endpoints for CLI clients."""
+    auth_type = "sso" if ENABLE_AUTH else "none"
+    if AUTH_TYPE == "api_key":
+        auth_type = "api_key"
+    issuer = SSO_ISSUER_URL.rstrip("/") if SSO_ISSUER_URL else ""
+    auth_path = "/protocol/openid-connect/auth"
+    token_path = "/protocol/openid-connect/token"
+    return {
+        "auth_type": auth_type,
+        "authorization_endpoint": f"{issuer}{auth_path}" if issuer else "",
+        "token_endpoint": f"{issuer}{token_path}" if issuer else "",
+        "client_id": SSO_CLIENT_ID,
+        "scopes": ["openid"],
+    }
 
 
 def _score_to_feedback_polarity(req: FeedbackRequest) -> Literal["up", "down"]:
@@ -180,7 +200,9 @@ async def feedback_handler(request: Request) -> JSONResponse:
 
 
 @app.get("/feedback/{thread_id}")
-async def get_thread_feedback(thread_id: str, user_id: str = "anonymous"):
+async def get_thread_feedback(
+    thread_id: str, user_id: str = "anonymous"
+) -> dict[str, Any]:
     """Return all feedback for a thread."""
     if not settings.database_uri:
         return {"feedback": []}

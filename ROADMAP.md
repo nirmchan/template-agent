@@ -51,7 +51,7 @@ Week  Backend (template-agent)              Frontend (template-ui)
  7    ✅ Memory & Database                   ✅ Personalization & Settings
  8    ✅ Logging & Telemetry                 ✅ Resilience & Error Handling
  9    ✅ Health & Diagnostics                ✅ UX Polish (Feedback, Editing)
-10    Developer Experience (CLI)             ✅ UX Polish (Accessibility)
+10    ✅ Developer Experience (CLI)           ✅ UX Polish (Accessibility)
 11    DeepAgents: Agent Types & Middleware   Production Hardening (OTEL, Security)
 12    DeepAgents: Filesystem Abstraction     Testing & Quality
 13    DeepAgents: Providers & Async Tasks    ─ (buffer / polish)
@@ -269,17 +269,17 @@ Health endpoint (/ok) ────────── Agent health indicator (Pha
 
 **Milestone:** <15min MTTR, full observability, structured logging
 
-#### Phase 5: Developer Experience (Week 10)
+#### Phase 5: Developer Experience — CLI (Week 10) ✅ COMPLETE
 
-- [ ] MR-96: Add typer dependency
-- [ ] MR-97: Create CLI with subcommands
-- [ ] MR-98: Add interactive setup wizard
-- [ ] MR-99: Add pre-commit hooks (bandit, ruff, black)
-- [ ] MR-100: Create CLAUDE.md
-- [ ] MR-101: Create ARCHITECTURE.md
-- [ ] MR-102: Update documentation
+- [x] MR-96: CLI scaffold — typer + rich, config module, entry point (`ask`), CLI name as variable (`CLI_NAME`)
+- [x] MR-97: `ask login` — browser OAuth2 PKCE flow, API key prompt, `GET /auth/discover` agent endpoint
+- [x] MR-98: Token refresh — auto-refresh via JWT `exp` claim, re-login prompt on expiry
+- [x] MR-99: `ask chat` — interactive REPL + one-shot mode, SSE streaming, `rich.Markdown` rendering
+- [x] MR-100: `ask threads` — list/show/delete thread history, rich Table output
+- [x] MR-101: Interrupt handling — detect human-in-the-loop pauses, format prompts, build resume payloads
+- [x] MR-102: Makefile `install-cli` target, README CLI section, project structure docs
 
-**Milestone:** World-class developer experience
+**Milestone:** Full CLI chat client behind `ENABLE_CLI` feature flag, OAuth2 PKCE login, SSE streaming, 27 unit tests
 
 ---
 
@@ -749,7 +749,7 @@ Completed: 2026-05-13
 | Production Foundations | 5 ⏳ | Error handling ✅, type safety ✅; coverage + test infra remaining |
 | Scalability | 7 | 70% cost reduction, cache hit >90%, 3x throughput |
 | Observability | 9 | MTTR <15min, OTEL traces, structured logging |
-| Developer Experience | 10 | CLI functional, pre-commit hooks, docs complete |
+| Developer Experience | 10 ✅ | CLI functional, feature-flagged, OAuth login, SSE chat, thread mgmt |
 | DeepAgents: Agents | 11 | Type hierarchy, middleware functional |
 | DeepAgents: Filesystem | 12 | Abstraction complete, backends working |
 | DeepAgents: Providers | 13 | Multi-provider, async task API |

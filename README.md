@@ -42,6 +42,37 @@ curl -X POST http://localhost:5002/v1/stream \
 
 Client examples (Streamlit, Python async) are in [`examples/`](./examples/).
 
+## CLI (optional)
+
+A terminal chat client for talking to the running agent. Behind a feature flag.
+
+```bash
+# Install CLI extras
+uv pip install -e ".[cli]"
+
+# Enable the CLI
+export ENABLE_CLI=true
+
+# Configure the agent URL (no default)
+ask config set url http://localhost:5002
+
+# Login (browser SSO, API key, or none depending on agent config)
+ask login
+
+# One-shot question
+ask ask "What tools do you have?"
+
+# Interactive chat
+ask chat
+
+# Manage threads
+ask threads list
+ask threads show <thread_id>
+ask threads delete <thread_id>
+```
+
+The CLI name (`ask`) is configurable in `deep_agent/cli/constants.py`.
+
 ## Configuration
 
 | Variable | Default | Required |
@@ -60,6 +91,7 @@ Client examples (Streamlit, Python async) are in [`examples/`](./examples/).
 | `LANGFUSE_BASE_URL` | — | No |
 | `AGENT_SSL_KEYFILE` | — | No |
 | `AGENT_SSL_CERTFILE` | — | No |
+| `ENABLE_CLI` | `false` | No |
 
 ## Project Structure
 
@@ -81,6 +113,15 @@ deep_agent/
 │   ├── main.py               # Uvicorn entry point
 │   ├── schema.py             # Pydantic models
 │   └── settings.py           # Env config
+├── cli/                       # Optional CLI chat client
+│   ├── __init__.py            # Lazy loader (import guard)
+│   ├── main.py                # Typer app + commands
+│   ├── auth.py                # OAuth login, token refresh
+│   ├── chat.py                # Interactive REPL + one-shot
+│   ├── config.py              # ~/.config/ask/config.json
+│   ├── constants.py           # CLI_NAME, feature flags
+│   ├── threads.py             # Thread list/show/delete
+│   └── interrupts.py          # Human-in-the-loop handling
 ├── agent_config/
 │   ├── orchestrator/         # Main agent configuration
 │   │   └── main.md           # Orchestrator prompt (YAML + MD)
