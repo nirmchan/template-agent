@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 "../deep_agent/cli" = "deep_agent/cli"
 
 [tool.hatch.build.targets.wheel.force-include]
-"deep_agent/cli" = "deep_agent/cli"
+"../deep_agent/cli" = "deep_agent/cli"
 
 [project]
 name = "deep-agent-cli"
