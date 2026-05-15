@@ -14,13 +14,20 @@ persisted to Postgres for cross-session history.
 from __future__ import annotations
 
 import json
+import os
+import time
 from typing import Any, Literal
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
-from deep_agent.aegra.auth import ENABLE_AUTH, SSO_CLIENT_ID, SSO_ISSUER_URL
+from deep_agent.aegra.auth import (
+    ENABLE_AUTH,
+    SSO_CLIENT_ID,
+    SSO_CLIENT_SECRET,
+    SSO_ISSUER_URL,
+)
 from deep_agent.aegra.middleware import AUTH_TYPE
 from deep_agent.aegra.telemetry import get_langfuse_client
 from deep_agent.src.feedback.repository import FeedbackRepository
@@ -32,6 +39,16 @@ logger = get_python_logger()
 
 app = FastAPI(title="template-agent-custom", docs_url=None, redoc_url=None)
 
+_cli_auth_codes: dict[str, dict[str, Any]] = {}
+_CLI_CODE_TTL = 300
+
+
+def _agent_base_url() -> str:
+    host = os.environ.get("AGENT_HOST", "0.0.0.0")
+    port = os.environ.get("AGENT_PORT", "5002")
+    display_host = "localhost" if host == "0.0.0.0" else host
+    return f"http://{display_host}:{port}"
+
 
 @app.get("/auth/discover")
 async def auth_discover() -> dict[str, Any]:
@@ -42,13 +59,61 @@ async def auth_discover() -> dict[str, Any]:
     issuer = SSO_ISSUER_URL.rstrip("/") if SSO_ISSUER_URL else ""
     auth_path = "/protocol/openid-connect/auth"
     token_path = "/protocol/openid-connect/token"
+    base = _agent_base_url()
     return {
         "auth_type": auth_type,
         "authorization_endpoint": f"{issuer}{auth_path}" if issuer else "",
         "token_endpoint": f"{issuer}{token_path}" if issuer else "",
         "client_id": SSO_CLIENT_ID,
+        "client_secret": SSO_CLIENT_SECRET or "",
         "scopes": ["openid"],
+        "cli_callback_url": f"{base}/auth/cli/callback",
     }
+
+
+@app.get("/auth/cli/callback")
+async def cli_oauth_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+) -> HTMLResponse:
+    """Receive OAuth callback from Keycloak, store code for CLI to poll."""
+    if error:
+        msg = error_description or error
+        logger.warning("cli_oauth_callback_error", error=error, desc=error_description)
+        return HTMLResponse(
+            f"<html><body><h2>Login failed</h2><p>{msg}</p>"
+            "<p>You may close this window.</p></body></html>",
+            status_code=400,
+        )
+    if not code or not state:
+        return HTMLResponse(
+            "<html><body><h2>Missing code or state</h2>"
+            "<p>You may close this window.</p></body></html>",
+            status_code=400,
+        )
+    _cli_auth_codes[state] = {"code": code, "ts": time.time()}
+    logger.info("cli_oauth_code_stored", state=state)
+    return HTMLResponse(
+        "<html><body><h2>Login complete</h2>"
+        "<p>You can close this window and return to the terminal.</p></body></html>"
+    )
+
+
+@app.get("/auth/cli/poll")
+async def cli_poll_code(state: str = "") -> JSONResponse:
+    """CLI polls this endpoint to retrieve the authorization code."""
+    if not state:
+        return JSONResponse({"status": "waiting"}, status_code=200)
+    entry = _cli_auth_codes.get(state)
+    if not entry:
+        return JSONResponse({"status": "waiting"}, status_code=200)
+    if time.time() - entry["ts"] > _CLI_CODE_TTL:
+        _cli_auth_codes.pop(state, None)
+        return JSONResponse({"status": "expired"}, status_code=410)
+    _cli_auth_codes.pop(state, None)
+    return JSONResponse({"status": "ready", "code": entry["code"]}, status_code=200)
 
 
 def _score_to_feedback_polarity(req: FeedbackRequest) -> Literal["up", "down"]:

@@ -185,7 +185,7 @@ def login_cmd(
 
     if atype == "sso":
         try:
-            tokens = auth_mod.browser_login(discovered)
+            tokens = auth_mod.browser_login(discovered, agent_url)
         except Exception as exc:
             console.print(f"[red]Login failed: {exc}[/red]")
             raise typer.Exit(code=1) from exc

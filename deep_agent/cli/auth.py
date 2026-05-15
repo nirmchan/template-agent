@@ -5,11 +5,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
-import threading
 import time
 import urllib.parse
 import webbrowser
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import httpx
@@ -66,90 +64,29 @@ def _pkce_challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
 
 
-def _parse_query(path: str) -> dict[str, list[str]]:
-    parsed = urllib.parse.urlparse(path)
-    return urllib.parse.parse_qs(parsed.query)
-
-
-def browser_login(auth_config: dict[str, Any]) -> dict[str, Any]:
-    """OAuth2 authorization code + PKCE; opens system browser; returns token bundle."""
+def browser_login(auth_config: dict[str, Any], agent_url: str) -> dict[str, Any]:
+    """OAuth2 authorization code + PKCE via agent-hosted callback."""
     auth_endpoint = (auth_config.get("authorization_endpoint") or "").strip()
     token_endpoint = (auth_config.get("token_endpoint") or "").strip()
     client_id = (auth_config.get("client_id") or "").strip()
+    client_secret = (auth_config.get("client_secret") or "").strip()
+    callback_url = (auth_config.get("cli_callback_url") or "").strip()
     scopes_raw = auth_config.get("scopes") or []
     scopes = [str(s) for s in scopes_raw] if isinstance(scopes_raw, list) else []
 
-    if not auth_endpoint or not token_endpoint or not client_id:
+    if not auth_endpoint or not token_endpoint or not client_id or not callback_url:
         raise RuntimeError("SSO configuration from server is incomplete")
 
     state = secrets.token_urlsafe(16)
     code_verifier = _pkce_verifier()
     code_challenge = _pkce_challenge(code_verifier)
-
-    result: dict[str, Any] = {}
-    done = threading.Event()
-
-    class OAuthHandler(BaseHTTPRequestHandler):
-        def log_message(self, fmt: str, *args: object) -> None:
-            logger.debug("cli_oauth_callback_log", line=fmt % args)
-
-        def do_GET(self) -> None:  # noqa: N802
-            try:
-                params = _parse_query(self.path)
-                err = (params.get("error") or [""])[0]
-                if err:
-                    result["error"] = (params.get("error_description") or [err])[0]
-                    self.send_response(400)
-                    self.send_header("Content-type", "text/plain; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(
-                        b"Authentication error. You may close this window."
-                    )
-                    done.set()
-                    return
-
-                ret_state = (params.get("state") or [""])[0]
-                if ret_state != state:
-                    result["error"] = "state_mismatch"
-                    self.send_response(400)
-                    self.send_header("Content-type", "text/plain; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(b"Invalid state. You may close this window.")
-                    done.set()
-                    return
-
-                code = (params.get("code") or [""])[0]
-                if not code:
-                    result["error"] = "missing_code"
-                    self.send_response(400)
-                    self.send_header("Content-type", "text/plain; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(
-                        b"No authorization code. You may close this window."
-                    )
-                    done.set()
-                    return
-
-                result["code"] = code
-                self.send_response(200)
-                self.send_header("Content-type", "text/html; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(
-                    b"<html><body>Login complete. You can close this window.</body></html>"
-                )
-            finally:
-                done.set()
-
-    server = HTTPServer(("127.0.0.1", 0), OAuthHandler)
-    port = server.server_port
-    redirect_uri = f"http://127.0.0.1:{port}/callback"
     scope_str = " ".join(scopes) if scopes else "openid"
 
     query = urllib.parse.urlencode(
         {
             "response_type": "code",
             "client_id": client_id,
-            "redirect_uri": redirect_uri,
+            "redirect_uri": callback_url,
             "scope": scope_str,
             "state": state,
             "code_challenge": code_challenge,
@@ -158,40 +95,70 @@ def browser_login(auth_config: dict[str, Any]) -> dict[str, Any]:
     )
     authorize_url = f"{auth_endpoint}?{query}"
 
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
     logger.info("cli_oauth_browser_open", authorize_url=auth_endpoint)
     try:
         webbrowser.open(authorize_url, new=1, autoraise=True)
     except Exception as exc:
         logger.warning("cli_oauth_browser_failed", error=str(exc))
 
-    if not done.wait(timeout=120):
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-        raise TimeoutError("OAuth callback timed out after 120s")
+    poll_url = f"{agent_url.rstrip('/')}/auth/cli/poll"
+    code = _poll_for_code(poll_url, state, timeout=120)
 
-    server.shutdown()
-    server.server_close()
-    thread.join(timeout=5)
+    return _exchange_code(
+        code=code,
+        redirect_uri=callback_url,
+        token_endpoint=token_endpoint,
+        client_id=client_id,
+        client_secret=client_secret,
+        code_verifier=code_verifier,
+    )
 
-    if result.get("error"):
-        raise RuntimeError(str(result["error"]))
-    code = result.get("code")
-    if not code or not isinstance(code, str):
-        raise RuntimeError("OAuth flow did not return an authorization code")
 
+def _poll_for_code(poll_url: str, state: str, timeout: int = 120) -> str:
+    """Poll the agent's ``/auth/cli/poll`` until a code arrives."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            resp = httpx.get(poll_url, params={"state": state}, timeout=10)
+            data = resp.json()
+        except (httpx.HTTPError, ValueError):
+            time.sleep(2)
+            continue
+        status = data.get("status", "")
+        if status == "ready":
+            code = data.get("code", "")
+            if code:
+                return str(code)
+            raise RuntimeError("Agent returned ready but no code")
+        if status == "expired":
+            raise RuntimeError("Login timed out on the server side")
+        time.sleep(2)
+    raise TimeoutError(f"No login callback received within {timeout}s")
+
+
+def _exchange_code(
+    *,
+    code: str,
+    redirect_uri: str,
+    token_endpoint: str,
+    client_id: str,
+    client_secret: str,
+    code_verifier: str,
+) -> dict[str, Any]:
+    """Exchange an authorization code for tokens."""
+    form: dict[str, str] = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "code_verifier": code_verifier,
+    }
+    if client_secret:
+        form["client_secret"] = client_secret
     try:
         resp = httpx.post(
             token_endpoint,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "client_id": client_id,
-                "code_verifier": code_verifier,
-            },
+            data=form,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )
@@ -200,25 +167,28 @@ def browser_login(auth_config: dict[str, Any]) -> dict[str, Any]:
     except httpx.HTTPStatusError as exc:
         detail = exc.response.text if exc.response else str(exc)
         raise RuntimeError(
-            f"Token exchange failed: HTTP {exc.response.status_code if exc.response else '?'} {detail}"
+            f"Token exchange failed: HTTP "
+            f"{exc.response.status_code if exc.response else '?'} {detail}"
         ) from exc
     except (httpx.HTTPError, ValueError) as exc:
         raise RuntimeError(f"Token exchange failed: {exc}") from exc
 
     if not isinstance(parsed, dict):
         raise RuntimeError("Token response was not a JSON object")
-
     access = parsed.get("access_token")
     if not access or not isinstance(access, str):
         raise RuntimeError("Token response missing access_token")
 
-    return {
+    result: dict[str, Any] = {
         "access_token": access,
         "refresh_token": str(parsed.get("refresh_token") or ""),
         "expires_in": parsed.get("expires_in"),
         "token_endpoint": token_endpoint,
         "client_id": client_id,
     }
+    if client_secret:
+        result["client_secret"] = client_secret
+    return result
 
 
 def api_key_login() -> dict[str, Any]:
@@ -259,16 +229,20 @@ def refresh_tokens(config: dict[str, Any]) -> dict[str, Any] | None:
     refresh = auth.get("refresh_token")
     token_ep = auth.get("token_endpoint")
     client_id = auth.get("client_id")
+    client_secret = auth.get("client_secret", "")
     if not refresh or not token_ep or not client_id:
         return None
+    form: dict[str, str] = {
+        "grant_type": "refresh_token",
+        "refresh_token": str(refresh),
+        "client_id": str(client_id),
+    }
+    if client_secret:
+        form["client_secret"] = str(client_secret)
     try:
         resp = httpx.post(
             str(token_ep),
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": str(refresh),
-                "client_id": str(client_id),
-            },
+            data=form,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )
