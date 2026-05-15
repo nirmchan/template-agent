@@ -60,3 +60,28 @@ def test_get_token_from_auth_section(isolated_config_home: Path) -> None:
     assert config_mod.get_token() == "tok"
     config_mod.save_config({"auth": {"api_key": "k"}})
     assert config_mod.get_token() == "k"
+
+
+def test_alias_add_and_resolve(isolated_config_home: Path) -> None:
+    config_mod.save_config({"aliases": {"prod": "http://prod.test"}})
+    assert config_mod.get_aliases() == {"prod": "http://prod.test"}
+    assert config_mod.resolve_alias("prod") == "http://prod.test"
+    assert config_mod.resolve_alias("missing") is None
+
+
+def test_resolve_url_resolves_alias(isolated_config_home: Path) -> None:
+    config_mod.save_config({"aliases": {"local": "http://local.test:5002"}})
+    home = str(isolated_config_home)
+    with patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}, clear=True):
+        assert config_mod.resolve_url("local") == "http://local.test:5002"
+
+
+def test_resolve_url_prefers_literal_over_alias(isolated_config_home: Path) -> None:
+    config_mod.save_config({"aliases": {"local": "http://aliased.test"}})
+    with patch.dict(os.environ, {}, clear=True):
+        assert config_mod.resolve_url("http://explicit.test") == "http://explicit.test"
+
+
+def test_get_aliases_empty_when_missing(isolated_config_home: Path) -> None:
+    config_mod.save_config({})
+    assert config_mod.get_aliases() == {}

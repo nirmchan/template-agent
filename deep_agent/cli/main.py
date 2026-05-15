@@ -28,8 +28,10 @@ config_app = typer.Typer(help="Manage CLI configuration.", no_args_is_help=True)
 config_set_app = typer.Typer(
     help="Persist a configuration value.", no_args_is_help=True
 )
+alias_app = typer.Typer(help="Manage agent URL aliases.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 config_app.add_typer(config_set_app, name="set")
+config_app.add_typer(alias_app, name="alias")
 
 
 def _version_str() -> str:
@@ -106,6 +108,51 @@ def config_show() -> None:
         console.print("(empty config)")
         return
     console.print(json.dumps(_masked_config_view(cfg), indent=2))
+
+
+@alias_app.command("add")
+def alias_add(
+    name: str = typer.Argument(..., help="Short name for the agent."),
+    url: str = typer.Argument(..., help="Agent base URL."),
+) -> None:
+    """Save a named agent URL alias (e.g. ``prod``, ``local``)."""
+    cfg = load_config()
+    aliases = cfg.get("aliases")
+    if not isinstance(aliases, dict):
+        aliases = {}
+    aliases[name.strip()] = url.strip().rstrip("/")
+    cfg["aliases"] = aliases
+    save_config(cfg)
+    console.print(f"Alias [bold]{name}[/bold] -> {url}")
+
+
+@alias_app.command("remove")
+def alias_remove(
+    name: str = typer.Argument(..., help="Alias to remove."),
+) -> None:
+    """Remove a saved agent URL alias."""
+    cfg = load_config()
+    aliases = cfg.get("aliases")
+    if not isinstance(aliases, dict) or name.strip() not in aliases:
+        console.print(f"[yellow]Alias '{name}' not found.[/yellow]")
+        raise typer.Exit(code=1)
+    del aliases[name.strip()]
+    cfg["aliases"] = aliases
+    save_config(cfg)
+    console.print(f"Removed alias [bold]{name}[/bold].")
+
+
+@alias_app.command("list")
+def alias_list() -> None:
+    """List all saved agent URL aliases."""
+    from deep_agent.cli.config import get_aliases
+
+    aliases = get_aliases()
+    if not aliases:
+        console.print("(no aliases)")
+        return
+    for name, url in sorted(aliases.items()):
+        console.print(f"  [bold]{name}[/bold]  ->  {url}")
 
 
 @app.command("login")

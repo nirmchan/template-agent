@@ -94,11 +94,28 @@ def get_token() -> str | None:
     return None
 
 
+def get_aliases() -> dict[str, str]:
+    """Return the ``aliases`` dict from config (name -> url)."""
+    cfg = load_config()
+    raw = cfg.get("aliases")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if v}
+
+
+def resolve_alias(name: str) -> str | None:
+    """Look up *name* in saved aliases; return URL or None."""
+    return get_aliases().get(name)
+
+
 def resolve_url(url_option: str | None) -> str:
-    """Precedence: CLI flag > ``AGENT_URL`` > config ``url`` > error."""
+    """Precedence: CLI flag/alias > ``AGENT_URL`` > config ``url`` > error."""
     if url_option:
         u = url_option.strip().rstrip("/")
         if u:
+            aliased = resolve_alias(u)
+            if aliased:
+                return aliased.strip().rstrip("/")
             return u
     env = os.environ.get("AGENT_URL", "").strip()
     if env:
