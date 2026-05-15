@@ -51,7 +51,7 @@ Week  Backend (template-agent)              Frontend (template-ui)
  7    ✅ Memory & Database                   ✅ Personalization & Settings
  8    ✅ Logging & Telemetry                 ✅ Resilience & Error Handling
  9    ✅ Health & Diagnostics                ✅ UX Polish (Feedback, Editing)
-10    ✅ Developer Experience (CLI)           ✅ UX Polish (Accessibility)
+10    ─ (available)                           ✅ UX Polish (Accessibility)
 11    DeepAgents: Agent Types & Middleware   Production Hardening (OTEL, Security)
 12    DeepAgents: Filesystem Abstraction     Testing & Quality
 13    DeepAgents: Providers & Async Tasks    ─ (buffer / polish)
@@ -268,18 +268,6 @@ Health endpoint (/ok) ────────── Agent health indicator (Pha
 - [x] 23 new health + startup tests, 509 total passing, 82.16% coverage
 
 **Milestone:** <15min MTTR, full observability, structured logging
-
-#### Phase 5: Developer Experience — CLI (Week 10) ✅ COMPLETE
-
-- [x] MR-96: CLI scaffold — typer + rich, config module, entry point (`ask`), CLI name as variable (`CLI_NAME`)
-- [x] MR-97: `ask login` — browser OAuth2 PKCE flow, API key prompt, `GET /auth/discover` agent endpoint
-- [x] MR-98: Token refresh — auto-refresh via JWT `exp` claim, re-login prompt on expiry
-- [x] MR-99: `ask chat` — interactive REPL + one-shot mode, SSE streaming, `rich.Markdown` rendering
-- [x] MR-100: `ask threads` — list/show/delete thread history, rich Table output
-- [x] MR-101: Interrupt handling — detect human-in-the-loop pauses, format prompts, build resume payloads
-- [x] MR-102: Makefile `install-cli` target, README CLI section, project structure docs
-
-**Milestone:** Full CLI chat client behind `ENABLE_CLI` feature flag, OAuth2 PKCE login, SSE streaming, 27 unit tests
 
 ---
 
@@ -784,7 +772,6 @@ Completed: 2026-05-13
 | Cache | Redis + diskcache + FAISS |
 | Observability | OpenTelemetry + structlog + Langfuse |
 | Testing | pytest + pytest-asyncio + pytest-mock + pytest-cov |
-| CLI | typer + rich |
 | Quality | ruff + black + pyright + mypy + bandit |
 | Deployment | Containerfile + K8s manifests + Helm |
 
