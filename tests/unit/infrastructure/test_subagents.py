@@ -5,7 +5,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from deep_agent.src.exceptions import SubAgentError
-from deep_agent.src.infrastructure.subagents import load_subagents
+from deep_agent.src.infrastructure.subagents import (
+    VALID_AGENT_TYPES,
+    _build_async_subagent,
+    _build_compiled_subagent,
+    _build_default_subagent,
+    load_subagents,
+)
 
 
 class TestLoadSubagents:
@@ -275,3 +281,180 @@ class TestLoadSubagents:
                 description="",
                 system_prompt="Prompt",
             )
+
+
+class TestAgentTypeSystem:
+    """Tests for the type field and multi-type subagent dispatch."""
+
+    def test_valid_agent_types_constant(self):
+        assert "default" in VALID_AGENT_TYPES
+        assert "compiled" in VALID_AGENT_TYPES
+        assert "async" in VALID_AGENT_TYPES
+
+    def test_invalid_type_raises_value_error(self):
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+        ):
+            mock_get_configs.return_value = {
+                "bad": {
+                    "name": "bad",
+                    "type": "invalid_type",
+                    "model": "gemini-2.5-pro",
+                    "description": "Bad agent",
+                    "body": "Prompt",
+                }
+            }
+            with pytest.raises(SubAgentError, match="invalid type 'invalid_type'"):
+                load_subagents(tools=[])
+
+    def test_missing_type_defaults_to_default(self):
+        """No type field means SubAgent (default)."""
+        mock_model = MagicMock()
+        mock_subagent = MagicMock()
+
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+            patch(
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
+            ) as mock_create_model,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+        ):
+            mock_get_configs.return_value = {
+                "analyst": {
+                    "name": "analyst",
+                    "model": "gemini-2.5-flash",
+                    "description": "Analyst",
+                    "body": "Prompt",
+                    # No 'type' field
+                }
+            }
+            mock_create_model.return_value = mock_model
+            mock_sa.return_value = mock_subagent
+
+            result = load_subagents(tools=[])
+            assert result == [mock_subagent]
+            mock_sa.assert_called_once()
+
+    def test_type_default_builds_subagent(self):
+        mock_model = MagicMock()
+        mock_subagent = MagicMock()
+
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+            patch(
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
+            ) as mock_create_model,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+        ):
+            mock_get_configs.return_value = {
+                "publisher": {
+                    "name": "publisher",
+                    "type": "default",
+                    "model": "gemini-2.5-pro",
+                    "description": "Publisher",
+                    "body": "Prompt",
+                }
+            }
+            mock_create_model.return_value = mock_model
+            mock_sa.return_value = mock_subagent
+
+            result = load_subagents(tools=[])
+            assert result == [mock_subagent]
+
+    def test_type_compiled_builds_compiled_subagent(self):
+        mock_model = MagicMock()
+        mock_graph = MagicMock()
+
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+            patch(
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
+            ) as mock_create_model,
+            patch(
+                "deep_agent.src.infrastructure.subagents.create_deep_agent"
+            ) as mock_create_agent,
+            patch(
+                "deep_agent.src.infrastructure.subagents.get_backend"
+            ) as mock_get_backend,
+            patch(
+                "deep_agent.src.infrastructure.subagents.CompiledSubAgent"
+            ) as mock_compiled,
+        ):
+            mock_get_configs.return_value = {
+                "analyst": {
+                    "name": "analyst",
+                    "type": "compiled",
+                    "model": "gemini-2.5-pro",
+                    "description": "Fast analyst",
+                    "body": "Prompt",
+                }
+            }
+            mock_create_model.return_value = mock_model
+            mock_create_agent.return_value = mock_graph
+            mock_get_backend.return_value = MagicMock()
+            mock_compiled.return_value = MagicMock()
+
+            result = load_subagents(tools=[])
+            assert len(result) == 1
+            mock_create_agent.assert_called_once()
+            mock_compiled.assert_called_once_with(
+                name="analyst",
+                description="Fast analyst",
+                runnable=mock_graph,
+            )
+
+    def test_type_async_builds_async_subagent(self):
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+            patch(
+                "deep_agent.src.infrastructure.subagents.AsyncSubAgent"
+            ) as mock_async_sa,
+        ):
+            mock_get_configs.return_value = {
+                "researcher": {
+                    "name": "researcher",
+                    "type": "async",
+                    "description": "Remote researcher",
+                    "body": "",
+                    "graph_id": "researcher-graph",
+                    "url": "http://research-agent:8000",
+                }
+            }
+            mock_async_sa.return_value = MagicMock()
+
+            result = load_subagents(tools=[])
+            assert len(result) == 1
+            mock_async_sa.assert_called_once_with(
+                name="researcher",
+                description="Remote researcher",
+                graph_id="researcher-graph",
+                url="http://research-agent:8000",
+            )
+
+    def test_type_async_raises_without_graph_id(self):
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+        ):
+            mock_get_configs.return_value = {
+                "bad_async": {
+                    "name": "bad_async",
+                    "type": "async",
+                    "description": "Missing graph_id",
+                    "body": "",
+                    # No graph_id
+                }
+            }
+            with pytest.raises(SubAgentError, match="missing required 'graph_id'"):
+                load_subagents(tools=[])

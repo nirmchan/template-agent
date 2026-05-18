@@ -9,12 +9,14 @@ When Redis is unavailable, falls back to in-process scheduling
 Feature flag: ``MEMORY_CONSOLIDATION_ENABLED``.
 """
 
+from typing import Any
+
 from deep_agent.src.memory.config import memory_settings
 from deep_agent.utils.pylogger import get_python_logger
 
 logger = get_python_logger()
 
-_scheduler = None  # type: ignore[assignment]
+_scheduler: Any = None
 
 
 async def start_scheduler(database_uri: str) -> bool:

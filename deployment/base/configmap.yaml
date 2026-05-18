@@ -9,13 +9,4 @@ data:
   POSTGRES_DB: "template_agent"
 
   # Redis Configuration
-  REDIS_HOST: "redis"
-  REDIS_PORT: "6379"
-  REDIS_DB: "0"
-  REDIS_MAX_CONNECTIONS: "10"
-
-  # OpenTelemetry Configuration
-  OTEL_ENABLED: "true"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
-  OTEL_TRACES_EXPORTER: "otlp"
-  OTEL_METRICS_EXPORTER: "otlp"
+  REDIS_URL: "redis://redis:6379/0"

@@ -198,6 +198,9 @@ ROADMAP.md
 # Demo environment (make demo)
 .demo/
 
+# Kind cluster cloned repos (make kind)
+.kind/
+
 # LangGraph Platform (local dev)
 .langgraph/
 langgraph-api-data/

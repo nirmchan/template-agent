@@ -1,17 +1,13 @@
 """LLM factory for creating configured model instances.
 
-This module provides the factory function for creating language model instances
-with appropriate configuration. It supports both Google Gemini models (via
-langchain_google_genai) and Anthropic Claude models (via Vertex AI), with
-consistent settings and authentication across the application.
+Supports three provider paths:
+  1. Gemini (via langchain_google_genai + Vertex AI service account)
+  2. Claude (via langchain_google_vertexai Model Garden)
+  3. vLLM / OpenAI-compatible (via langchain_openai + custom base_url)
 
-Why this exists:
-    Different agents and subagents need LLM instances with proper credentials,
-    temperature settings, and model selection. This factory centralizes model
-    creation logic and ensures consistent configuration.
-
-Functions:
-    create_model: Create a configured LLM instance by model name
+Any model name not in GEMINI_MODELS or CLAUDE_MODELS is assumed to be
+served by a vLLM (or OpenAI-compatible) endpoint. Set VLLM_BASE_URL
+to the inference server's /v1 endpoint.
 """
 
 from langchain_core.language_models import BaseChatModel
@@ -45,13 +41,15 @@ def create_model(
     temperature: float = 0.0,
     max_output_tokens: int | None = None,
 ) -> BaseChatModel:
-    """Create a Vertex AI model (Gemini or Claude).
+    """Create a model instance (Vertex AI, or vLLM/OpenAI-compatible).
 
-    Retries up to 3 times with exponential backoff on transient failures
-    (credential refresh, network issues, rate limits).
+    Resolution order:
+      1. If model_name is in GEMINI_MODELS → Vertex AI Gemini
+      2. If model_name is in CLAUDE_MODELS → Vertex AI Claude (Model Garden)
+      3. Otherwise → vLLM / OpenAI-compatible endpoint (requires VLLM_BASE_URL)
 
     Args:
-        model_name: Model name from GEMINI_MODELS or CLAUDE_MODELS.
+        model_name: Model identifier (Gemini/Claude name, or vLLM model path).
         temperature: Model temperature (default: 0.0).
         max_output_tokens: Maximum tokens in model response (default: 8192).
 
@@ -59,7 +57,7 @@ def create_model(
         Configured model instance.
 
     Raises:
-        ValueError: If model_name is empty or unsupported.
+        ValueError: If model_name is empty or vLLM is needed but not configured.
         LLMError: If model creation fails after retries.
     """
     if not model_name or not model_name.strip():
@@ -67,15 +65,22 @@ def create_model(
 
     max_output_tokens = max_output_tokens or _DEFAULT_MAX_OUTPUT_TOKENS
 
-    is_claude = model_name in CLAUDE_MODELS
     is_gemini = model_name in GEMINI_MODELS
+    is_claude = model_name in CLAUDE_MODELS
 
-    if not is_claude and not is_gemini:
-        raise ValueError(
-            f"Unknown model '{model_name}'. "
-            f"Supported models: {GEMINI_MODELS + CLAUDE_MODELS}"
-        )
+    if is_gemini or is_claude:
+        return _create_vertex_model(model_name, temperature, max_output_tokens)
 
+    return _create_vllm_model(model_name, temperature, max_output_tokens)
+
+
+def _create_vertex_model(
+    model_name: str,
+    temperature: float,
+    max_output_tokens: int,
+) -> BaseChatModel:
+    """Create a Vertex AI model (Gemini or Claude)."""
+    is_claude = model_name in CLAUDE_MODELS
     model_type = "Claude" if is_claude else "Gemini"
 
     try:
@@ -84,7 +89,6 @@ def create_model(
         logger.info(
             f"Creating {model_type} model via Vertex AI",
             model=model_name,
-            model_type=model_type,
             project=project,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
@@ -116,10 +120,62 @@ def create_model(
             f"Failed to create {model_type} model '{model_name}'",
             error_type=type(e).__name__,
             model=model_name,
-            model_type=model_type,
             error_message=str(e),
             exc_info=True,
         )
         raise LLMError(
             f"Failed to create {model_type} model '{model_name}': {e}"
         ) from e
+
+
+def _create_vllm_model(
+    model_name: str,
+    temperature: float,
+    max_output_tokens: int,
+) -> BaseChatModel:
+    """Create a model via vLLM / OpenAI-compatible endpoint.
+
+    vLLM, TGI, Ollama, and any server exposing /v1/chat/completions works.
+    """
+    if not settings.VLLM_BASE_URL:
+        raise ValueError(
+            f"Model '{model_name}' is not a known Vertex AI model. "
+            f"Set VLLM_BASE_URL to use it via an OpenAI-compatible endpoint. "
+            f"Known Vertex AI models: {GEMINI_MODELS + CLAUDE_MODELS}"
+        )
+
+    try:
+        from langchain_openai import ChatOpenAI
+
+        logger.info(
+            "Creating model via vLLM/OpenAI-compatible endpoint",
+            model=model_name,
+            base_url=settings.VLLM_BASE_URL,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+        )
+
+        return ChatOpenAI(
+            model=model_name,
+            base_url=settings.VLLM_BASE_URL,
+            api_key=settings.VLLM_API_KEY,
+            temperature=temperature,
+            max_tokens=max_output_tokens,
+            max_retries=2,
+        )
+
+    except ImportError:
+        raise LLMError(
+            "langchain-openai is required for vLLM support. "
+            "Add 'langchain-openai' to your dependencies."
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to create vLLM model '{model_name}'",
+            error_type=type(e).__name__,
+            model=model_name,
+            base_url=settings.VLLM_BASE_URL,
+            error_message=str(e),
+            exc_info=True,
+        )
+        raise LLMError(f"Failed to create vLLM model '{model_name}': {e}") from e

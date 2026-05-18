@@ -40,13 +40,13 @@ class TestRequestContext:
 
     def test_bind_and_inject(self):
         bind_request_context(
-            request_id="req-123",
+            trace_id="req-123",
             user_id="user-456",
             thread_id="thread-789",
         )
         event: dict = {"event": "test"}
         result = _inject_request_context(None, "info", event)
-        assert result["request_id"] == "req-123"
+        assert result["trace_id"] == "req-123"
         assert result["user_id"] == "user-456"
         assert result["thread_id"] == "thread-789"
         assert result["service"] == "template-agent"
@@ -54,23 +54,23 @@ class TestRequestContext:
     def test_inject_without_bind(self):
         event: dict = {"event": "test"}
         result = _inject_request_context(None, "info", event)
-        assert "request_id" not in result
+        assert "trace_id" not in result
         assert "user_id" not in result
         assert "service" in result
 
     def test_clear_resets(self):
-        bind_request_context(request_id="req-x")
+        bind_request_context(trace_id="req-x")
         clear_request_context()
         event: dict = {"event": "test"}
         result = _inject_request_context(None, "info", event)
-        assert "request_id" not in result
+        assert "trace_id" not in result
 
     def test_partial_bind(self):
         bind_request_context(user_id="u1")
         event: dict = {"event": "test"}
         result = _inject_request_context(None, "info", event)
         assert result["user_id"] == "u1"
-        assert "request_id" not in result
+        assert "trace_id" not in result
 
 
 class TestConsoleRenderer:

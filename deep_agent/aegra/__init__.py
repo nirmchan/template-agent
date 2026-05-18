@@ -12,9 +12,8 @@ Modules:
     serialization: Full state serialization/deserialization
     nodes: Error-handling node wrappers for graph execution
     middleware: Authentication middleware (API key, JWT)
-    telemetry: OpenTelemetry + Langfuse integration
+    telemetry: Langfuse integration
     redis: Redis caching layer
-    worker: Worker pool configuration
 """
 
 __version__ = "0.1.0"

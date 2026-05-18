@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from deep_agent.src.infrastructure.mcp import (
+from deep_agent.aegra.mcp import (
     _build_server_config,
     _connect_single_server,
     _get_server_configs,

@@ -1,8 +1,12 @@
 """Settings configuration for the template agent.
 
-This module provides centralized configuration management using Pydantic
-BaseSettings for environment variable loading, validation, and default
-value handling for the template agent service.
+All operational defaults live HERE. No env vars needed for basic operation.
+Override via environment variables only when deploying to a different context.
+
+Hierarchy (highest wins):
+  1. Environment variables (set by orchestrator, compose, or shell)
+  2. .env file (secrets only — keys, passwords, credentials)
+  3. Defaults below (tuned for containerized demo stack)
 """
 
 from typing import Optional
@@ -14,175 +18,120 @@ from pydantic_settings import BaseSettings
 from deep_agent.src.exceptions import AppException, ErrorCodes
 from deep_agent.utils.pylogger import get_python_logger
 
-# Initialize logger
 logger = get_python_logger()
 
-# Load environment variables with error handling
 try:
     load_dotenv()
 except Exception as e:
-    # Log error but don't fail - environment variables might be set directly
     logger.warning(f"Could not load .env file: {e}")
 
 
 class Settings(BaseSettings):
-    """Configuration settings for the template agent.
+    """All agent settings with production-ready defaults.
 
-    Uses Pydantic BaseSettings to load and validate configuration from
-    environment variables. Provides default values for optional settings
-    and validation for required ones.
-
-    The settings are organized into logical groups:
-    - Server Configuration: Host, port, SSL settings
-    - Database Configuration: PostgreSQL connection parameters
-    - Langfuse Configuration: Tracing and analytics settings
-    - Google Configuration: Service account credentials
-    - MCP Configuration: MCP server connection settings
+    Grouped by concern. Every field has a sensible default so the agent
+    starts with zero configuration beyond secrets in .env.
     """
 
-    # Server Configuration
-    AGENT_HOST: str = Field(default="0.0.0.0", json_schema_extra={"env": "AGENT_HOST"})
-    AGENT_PORT: int = Field(default=5002, json_schema_extra={"env": "AGENT_PORT"})
-    SSL_KEYFILE: Optional[str] = Field(
-        default=None,
-        json_schema_extra={"env": "SSL_KEYFILE"},
-    )
-    SSL_CERTFILE: Optional[str] = Field(
-        default=None,
-        json_schema_extra={"env": "SSL_CERTFILE"},
-    )
+    # ── Server ────────────────────────────────────────────────────────
+    AGENT_HOST: str = Field(default="0.0.0.0")
+    AGENT_PORT: int = Field(default=5002)
+    SSL_KEYFILE: Optional[str] = Field(default=None)
+    SSL_CERTFILE: Optional[str] = Field(default=None)
 
     @property
     def get_ssl_keyfile_path(self) -> Optional[str]:
-        """Return SSL keyfile path or None if not set."""
+        """Return SSL key file path if configured, else None."""
         return None if not self.SSL_KEYFILE else self.SSL_KEYFILE
 
     @property
     def get_ssl_certfile_path(self) -> Optional[str]:
-        """Return SSL certfile path or None if not set."""
+        """Return SSL cert file path if configured, else None."""
         return None if not self.SSL_CERTFILE else self.SSL_CERTFILE
 
-    PYTHON_LOG_LEVEL: str = Field(
-        default="INFO", json_schema_extra={"env": "PYTHON_LOG_LEVEL"}
-    )
+    # ── Logging ───────────────────────────────────────────────────────
+    PYTHON_LOG_LEVEL: str = Field(default="INFO")
+    REQUEST_LOGGING_ENABLED: bool = Field(default=True)
+    REQUEST_LOG_HEADERS: bool = Field(default=True)
+    REQUEST_LOG_BODY: bool = Field(default=True)
+    REQUEST_LOG_BODY_MAX_SIZE: int = Field(default=10240)
 
-    MAX_OUTPUT_TOKENS: int = Field(
-        default=8192, json_schema_extra={"env": "MAX_OUTPUT_TOKENS"}
-    )
+    # ── Model ─────────────────────────────────────────────────────────
+    MAX_OUTPUT_TOKENS: int = Field(default=8192)
 
-    # Database Configuration
-    POSTGRES_USER: str = Field(
-        default="pgvector", json_schema_extra={"env": "POSTGRES_USER"}
-    )
-    POSTGRES_PASSWORD: str = Field(
-        default="pgvector", json_schema_extra={"env": "POSTGRES_PASSWORD"}
-    )
-    POSTGRES_DB: str = Field(
-        default="pgvector", json_schema_extra={"env": "POSTGRES_DB"}
-    )
-    POSTGRES_HOST: str = Field(
-        default="pgvector", json_schema_extra={"env": "POSTGRES_HOST"}
-    )
-    POSTGRES_PORT: int = Field(default=5432, json_schema_extra={"env": "POSTGRES_PORT"})
+    # ── Database (PostgreSQL) ─────────────────────────────────────────
+    POSTGRES_HOST: str = Field(default="pgvector")
+    POSTGRES_PORT: int = Field(default=5432)
+    POSTGRES_DB: str = Field(default="template_agent")
+    POSTGRES_USER: str = Field(default="postgres")
+    POSTGRES_PASSWORD: str = Field(default="postgres")
 
-    # Langfuse Configuration
-    LANGFUSE_PUBLIC_KEY: Optional[str] = Field(
-        default=None, json_schema_extra={"env": "LANGFUSE_PUBLIC_KEY"}
-    )
-    LANGFUSE_SECRET_KEY: Optional[str] = Field(
-        default=None, json_schema_extra={"env": "LANGFUSE_SECRET_KEY"}
-    )
-    LANGFUSE_BASE_URL: Optional[str] = Field(
-        default=None, json_schema_extra={"env": "LANGFUSE_BASE_URL"}
-    )
-    LANGFUSE_TRACING_ENVIRONMENT: str = Field(
-        default="development", json_schema_extra={"env": "LANGFUSE_TRACING_ENVIRONMENT"}
-    )
+    # ── Redis ─────────────────────────────────────────────────────────
+    REDIS_URL: str = Field(default="redis://redis:6379/0")
+    REDIS_BROKER_ENABLED: bool = Field(default=True)
 
-    # Google Application Credentials
-    GOOGLE_APPLICATION_CREDENTIALS_CONTENT: Optional[str] = Field(
-        default=None,
-        json_schema_extra={"env": "GOOGLE_APPLICATION_CREDENTIALS_CONTENT"},
-    )
+    # ── Auth / SSO ────────────────────────────────────────────────────
+    ENABLE_AUTH: bool = Field(default=True)
+    SSO_ISSUER_URL: Optional[str] = Field(default=None)
+    SSO_CLIENT_ID: Optional[str] = Field(default=None)
+    SSO_CLIENT_SECRET: Optional[str] = Field(default=None)
+    SSO_DEV_USERNAME: str = Field(default="John Doe")
+    SSO_DEV_USER_ID: str = Field(default="dev-user")
+    ENABLE_USER_ID_ENCRYPTION: bool = Field(default=False)
 
-    # Request Logging Configuration
-    REQUEST_LOGGING_ENABLED: bool = Field(
-        default=True,
-        json_schema_extra={
-            "env": "REQUEST_LOGGING_ENABLED",
-            "description": "Enable request/response logging",
-        },
-    )
-    REQUEST_LOG_HEADERS: bool = Field(
-        default=True,
-        json_schema_extra={
-            "env": "REQUEST_LOG_HEADERS",
-            "description": "Include headers in request/response logs",
-        },
-    )
-    REQUEST_LOG_BODY: bool = Field(
-        default=False,
-        json_schema_extra={
-            "env": "REQUEST_LOG_BODY",
-            "description": "Include body content in request/response logs",
-        },
-    )
-    REQUEST_LOG_BODY_MAX_SIZE: int = Field(
-        default=10240,
-        json_schema_extra={
-            "env": "REQUEST_LOG_BODY_MAX_SIZE",
-            "description": "Maximum body size in bytes to log (0 for unlimited)",
-        },
-    )
+    # ── Observability (Langfuse) ──────────────────────────────────────
+    LANGFUSE_PUBLIC_KEY: Optional[str] = Field(default=None)
+    LANGFUSE_SECRET_KEY: Optional[str] = Field(default=None)
+    LANGFUSE_BASE_URL: Optional[str] = Field(default=None)
+    LANGFUSE_TRACING_ENVIRONMENT: str = Field(default="development")
+
+    # ── Google Cloud ──────────────────────────────────────────────────
+    GOOGLE_APPLICATION_CREDENTIALS_CONTENT: Optional[str] = Field(default=None)
+
+    # ── vLLM / OpenAI-compatible ─────────────────────────────────────
+    VLLM_BASE_URL: Optional[str] = Field(default=None)
+    VLLM_API_KEY: str = Field(default="EMPTY")
+
+    # ── Cache ─────────────────────────────────────────────────────────
+    CACHE_ENABLED: bool = Field(default=True)
+
+    # ── Memory Processing ─────────────────────────────────────────────
+    MEMORY_CONSOLIDATION_ENABLED: bool = Field(default=True)
+    MEMORY_DECAY_ENABLED: bool = Field(default=True)
+    MEMORY_CLUSTERING_ENABLED: bool = Field(default=True)
+    MEMORY_RELATIONSHIPS_ENABLED: bool = Field(default=True)
+
+    # ── Middleware ────────────────────────────────────────────────────
+    MIDDLEWARE_ENABLED: bool = Field(default=True)
+
+    # ── CLI ───────────────────────────────────────────────────────────
+    ENABLE_CLI: bool = Field(default=True)
+
+    # ── Derived ───────────────────────────────────────────────────────
 
     @property
     def database_uri(self) -> str:
-        """Generate database URI from individual components.
-
-        Constructs a PostgreSQL connection URI using the configured
-        database settings including user, password, host, port, and
-        database name.
-
-        Returns:
-            The complete PostgreSQL database URI string.
-        """
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        """Build PostgreSQL connection URI from component settings."""
+        return (
+            f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
 
 
 def validate_config(settings: Settings) -> None:
-    """Validate configuration settings.
-
-    Performs comprehensive validation to ensure required settings are
-    present and values are within acceptable ranges. This function
-    validates port ranges, log levels, and transport protocols.
-
-    Args:
-        settings: Settings instance to validate.
-
-    Raises:
-        ValueError: If required configuration is missing or invalid.
-    """
-    # Validate port range
+    """Validate port range and log level."""
     if not (1024 <= settings.AGENT_PORT <= 65535):
-        logger.error(
-            f"AGENT_PORT must be between 1024 and 65535, got {settings.AGENT_PORT}"
-        )
         raise AppException(
             f"AGENT_PORT must be between 1024 and 65535, got {settings.AGENT_PORT}",
             ErrorCodes.CONFIGURATION_VALIDATION_ERROR,
         )
 
-    # Validate log level
     valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     if settings.PYTHON_LOG_LEVEL.upper() not in valid_log_levels:
-        logger.error(
-            f"PYTHON_LOG_LEVEL must be one of {valid_log_levels}, got {settings.PYTHON_LOG_LEVEL}"
-        )
         raise AppException(
             f"PYTHON_LOG_LEVEL must be one of {valid_log_levels}, got {settings.PYTHON_LOG_LEVEL}",
             ErrorCodes.CONFIGURATION_VALIDATION_ERROR,
         )
 
 
-# Create settings instance without validation (validation happens in main.py)
 settings = Settings()

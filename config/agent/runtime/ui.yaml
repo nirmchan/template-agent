@@ -52,11 +52,11 @@ security:
 
 # --- Observability ---
 otel:
-  enabled: false             # Master switch — set true to activate OTEL tracing
+  enabled: true              # Master switch — set true to activate OTEL tracing
   service_name: "template-ui"
 
 # --- Announcement Banner ---
 announcement:
-  enabled: false
-  message: ""                # Banner text (empty = hidden)
+  enabled: true
+  message: "Welcome to the Agent Template Demo — all features enabled"
   type: info                 # info | warning | danger | success

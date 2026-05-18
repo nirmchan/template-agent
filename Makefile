@@ -1,4 +1,4 @@
-.PHONY: local dev test clean deploy undeploy demo
+.PHONY: local dev test clean deploy undeploy demo kind kind-down
 
 # OpenShift namespace (can be overridden: make deploy openshift NAMESPACE=my-project)
 NAMESPACE ?= $(shell oc project -q 2>/dev/null)
@@ -29,8 +29,7 @@ install:
 
 clean: ## Remove build artifacts, venv, and tear down demo stack
 	@echo "Stopping demo stack (if running)..."
-	@podman-compose -f compose.demo.yaml down -v 2>/dev/null || true
-	@podman-compose -f compose.dev.yaml down -v 2>/dev/null || true
+	@podman-compose down -v 2>/dev/null || true
 	@podman rmi template-agent_template-mcp-server template-agent_template-agent template-agent_template-ui 2>/dev/null || true
 	@rm -rf $(DEMO_DIR)
 	@echo "Cleaning up build artifacts..."
@@ -115,34 +114,33 @@ container:
 # Development environment targets
 # ---------------------------------------------------------------------------
 
-dev: ## Start full dev stack with all services (Redis, Postgres, Langfuse, Jaeger)
+dev: ## Start full dev stack with all services (Redis, Postgres)
 	@echo "Starting development stack..."
-	@echo "Services: pgvector, redis, jaeger, template-agent"
+	@echo "Services: pgvector, redis, template-agent"
 	@echo "Agent:    http://localhost:5002"
-	@echo "Jaeger:   http://localhost:16686"
 	@echo ""
 	@test -f .env || (echo "Creating .env from .env.example..." && cp .env.example .env)
-	podman-compose -f compose.dev.yaml up --build -d
+	podman-compose up --build -d
 	@echo ""
 	@echo "Tailing agent logs (Ctrl+C to stop)..."
 	@echo ""
-	podman-compose -f compose.dev.yaml logs -f template-agent
+	podman-compose logs -f template-agent
 
 dev-down: ## Stop dev stack
-	podman-compose -f compose.dev.yaml down
+	podman-compose down
 
 dev-clean: ## Stop dev stack and remove all data
-	podman-compose -f compose.dev.yaml down -v
+	podman-compose down -v
 	@echo "All dev data volumes removed"
 
 dev-logs: ## Tail all service logs
-	podman-compose -f compose.dev.yaml logs -f
+	podman-compose logs -f
 
 dev-restart: ## Restart dev stack
-	podman-compose -f compose.dev.yaml restart
+	podman-compose restart
 
 dev-agent: ## Restart just the agent service
-	podman-compose -f compose.dev.yaml restart template-agent
+	podman-compose restart template-agent
 
 # ---------------------------------------------------------------------------
 # Demo environment: Agent + MCP Server with SSO auth
@@ -150,7 +148,7 @@ dev-agent: ## Restart just the agent service
 
 DEMO_DIR := .demo
 DEMO_MCP_REPO := https://github.com/redhat-data-and-ai/template-mcp-server.git
-DEMO_MCP_BRANCH := deep-agent
+DEMO_MCP_BRANCH := feat/rh-flavour
 DEMO_UI_REPO := https://github.com/redhat-data-and-ai/template-ui.git
 DEMO_UI_BRANCH := feat/rh-flavour
 
@@ -218,17 +216,16 @@ demo: ## Start demo: UI + agent + MCP server with SSO auth (end-to-end)
 	@echo "CREATE DATABASE mcp_server;" > $(DEMO_DIR)/init-databases.sql
 	@# --- Step 7: Generate demo MCP config (container hostname) ---
 	@echo '{"mcpServers":{"template-mcp-server":{"url":"http://template-mcp-server:5001/mcp","transport":"streamable_http","enabled":true,"auth":true,"ssl_verify":false,"timeout":30}}}' | python3 -m json.tool > $(DEMO_DIR)/mcp.json
-	@# --- Step 8: Stop dev stack if running ---
-	@podman-compose -f compose.dev.yaml down 2>/dev/null || true
+	@# --- Step 8: Write MCP config for container hostnames ---
+	@cp $(DEMO_DIR)/mcp.json config/agent/mcp.json
 	@# --- Step 9: Start demo stack ---
 	@echo ""
-	@echo "Services: pgvector, redis, jaeger, template-mcp-server, template-agent, template-ui"
+	@echo "Services: pgvector, redis, template-mcp-server, template-agent, template-ui"
 	@echo "UI:         http://localhost:8080  (SSO login)"
 	@echo "Agent:      http://localhost:5002"
 	@echo "MCP Server: http://localhost:5001  (SSO auth enabled)"
-	@echo "Jaeger:     http://localhost:16686"
 	@echo ""
-	podman-compose -f compose.demo.yaml up --build --force-recreate -d
+	podman-compose --profile demo up --build --force-recreate -d
 	@echo ""
 	@echo "Waiting for services to be healthy..."
 	@sleep 15
@@ -266,8 +263,7 @@ openshift:
 	echo "Switching to namespace..."; \
 	oc project $(NAMESPACE) || (echo "Error: Cannot switch to namespace '$(NAMESPACE)'. Check permissions." && exit 1); \
 	echo "Updating namespace references..."; \
-	sed -i.bak "s|NAMESPACE_PLACEHOLDER|$(NAMESPACE)|g" deployment/overlays/openshift/deployment.yaml; \
-	sed -i.bak "s|namespace: agent|namespace: $(NAMESPACE)|g" deployment/overlays/openshift/kustomization.yaml; \
+	sed -i.bak "s|NAMESPACE_PLACEHOLDER|$(NAMESPACE)|g" deployment/overlays/openshift/kustomization.yaml; \
 	echo "Creating BuildConfig and ImageStream..."; \
 	oc apply -f deployment/overlays/openshift/buildconfig.yaml; \
 	oc apply -f deployment/overlays/openshift/imagestream.yaml; \
@@ -281,10 +277,10 @@ openshift:
 		--exclude='(^|/)\.mypy_cache(/|$$)' \
 		--exclude='(^|/)\.ruff_cache(/|$$)' \
 		--exclude='.*\.log$$' \
-		--follow || (mv deployment/overlays/openshift/deployment.yaml.bak deployment/overlays/openshift/deployment.yaml 2>/dev/null; mv deployment/overlays/openshift/kustomization.yaml.bak deployment/overlays/openshift/kustomization.yaml 2>/dev/null; exit 1); \
+		--follow || (mv deployment/overlays/openshift/kustomization.yaml.bak deployment/overlays/openshift/kustomization.yaml 2>/dev/null; exit 1); \
 	echo "Deploying resources to OpenShift..."; \
-	oc apply -k deployment/overlays/openshift/ || (mv deployment/overlays/openshift/deployment.yaml.bak deployment/overlays/openshift/deployment.yaml 2>/dev/null; mv deployment/overlays/openshift/kustomization.yaml.bak deployment/overlays/openshift/kustomization.yaml 2>/dev/null; exit 1); \
-	rm -f deployment/overlays/openshift/deployment.yaml.bak deployment/overlays/openshift/kustomization.yaml.bak; \
+	oc apply -k deployment/overlays/openshift/ || (mv deployment/overlays/openshift/kustomization.yaml.bak deployment/overlays/openshift/kustomization.yaml 2>/dev/null; exit 1); \
+	rm -f deployment/overlays/openshift/kustomization.yaml.bak; \
 	echo "Deployment complete!"; \
 	echo "Checking deployment status..."; \
 	oc get pods -l app=agent; \
@@ -295,61 +291,107 @@ openshift:
 	echo "  Check status: oc get pods,svc,route -l app=agent"
 
 mpp:
-	@echo "Checking for oc CLI..."
-	@which oc > /dev/null || (echo "Error: oc CLI not found. Please install OpenShift CLI." && exit 1)
-	@echo "Validating TENANT parameter..."
-	@if [ -z "$(TENANT)" ]; then \
-		echo "Error: TENANT not set. Usage: make deploy mpp TENANT=your-tenant"; \
-		exit 1; \
-	fi; \
-	CONFIG_NAMESPACE="$(TENANT)--config"; \
-	RUNTIME_NAMESPACE="$(TENANT)--template"; \
-	echo "Config namespace: $$CONFIG_NAMESPACE"; \
-	echo "Runtime namespace: $$RUNTIME_NAMESPACE"; \
-	echo "Updating tenant.yaml with config namespace..."; \
-	sed -i.bak "s|TENANT_PLACEHOLDER|$$CONFIG_NAMESPACE|g" deployment/mpp/tenant.yaml; \
-	echo "Creating/switching to config namespace..."; \
-	oc project $$CONFIG_NAMESPACE 2>/dev/null || oc new-project $$CONFIG_NAMESPACE || (echo "Error: Cannot create/switch to namespace '$$CONFIG_NAMESPACE'." && mv deployment/mpp/tenant.yaml.bak deployment/mpp/tenant.yaml 2>/dev/null && exit 1); \
-	echo "Applying TenantNamespace CR to create runtime namespace..."; \
-	oc apply -f deployment/mpp/tenant.yaml || (mv deployment/mpp/tenant.yaml.bak deployment/mpp/tenant.yaml 2>/dev/null && exit 1); \
-	echo "Waiting for runtime namespace '$$RUNTIME_NAMESPACE' to be created..."; \
-	COUNTER=1; \
-	until oc get project $$RUNTIME_NAMESPACE 2>/dev/null || [ $$COUNTER -gt 30 ]; do \
-		echo "Waiting for namespace... ($$COUNTER/30)"; \
-		sleep 2; \
-		COUNTER=$$((COUNTER + 1)); \
-	done; \
-	if [ $$COUNTER -le 30 ]; then \
-		echo "Runtime namespace '$$RUNTIME_NAMESPACE' is ready"; \
-	fi; \
-	oc project "$(TENANT)--$(RUNTIME_NAMESPACE)" > /dev/null 2>&1 || (echo "Error: Runtime namespace '$$RUNTIME_NAMESPACE' was not created" && mv deployment/mpp/tenant.yaml.bak deployment/mpp/tenant.yaml 2>/dev/null && exit 1); \
-	echo "Switching to runtime namespace..."; \
-	oc project $$RUNTIME_NAMESPACE || (echo "Error: Cannot switch to runtime namespace '$$RUNTIME_NAMESPACE'" && mv deployment/mpp/tenant.yaml.bak deployment/mpp/tenant.yaml 2>/dev/null && exit 1); \
-	echo "Creating BuildConfig and ImageStream..."; \
-	oc apply -f deployment/mpp/buildconfig.yaml; \
-	oc apply -f deployment/mpp/imagestream.yaml; \
-	echo "Building container image from source..."; \
-	oc start-build agent --from-dir=. \
-		--exclude='(^|/)\.venv(/|$$)' \
-		--exclude='(^|/)__pycache__(/|$$)' \
-		--exclude='(^|/)\.pytest_cache(/|$$)' \
-		--exclude='(^|/)tests(/|$$)' \
-		--exclude='(^|/)examples(/|$$)' \
-		--exclude='(^|/)\.mypy_cache(/|$$)' \
-		--exclude='(^|/)\.ruff_cache(/|$$)' \
-		--exclude='.*\.log$$' \
-		--follow || (mv deployment/mpp/tenant.yaml.bak deployment/mpp/tenant.yaml 2>/dev/null; exit 1); \
-	echo "Deploying resources to MPP..."; \
-	oc apply -k deployment/mpp/ || (mv deployment/mpp/tenant.yaml.bak deployment/mpp/tenant.yaml 2>/dev/null; exit 1); \
-	rm -f deployment/mpp/tenant.yaml.bak; \
-	echo "Deployment complete!"; \
-	echo "Checking deployment status..."; \
-	oc get pods -l app=agent; \
-	echo ""; \
-	echo "Useful commands:"; \
-	echo "  View logs: oc logs -l app=agent --tail=100"; \
-	echo "  Get route: oc get route agent"; \
-	echo "  Check status: oc get pods,svc,route -l app=agent"
+	@echo "Error: MPP deployment is not yet implemented."
+	@echo "The deployment/mpp/ kustomize overlay has not been created."
+	@echo "Use 'make deploy openshift' for OpenShift or 'make kind' for local Kubernetes."
+	@exit 1
+
+# ---------------------------------------------------------------------------
+# Kind cluster: local Kubernetes testing
+# ---------------------------------------------------------------------------
+
+KIND_CLUSTER := template-agent
+KIND_CTX := kind-$(KIND_CLUSTER)
+KIND_IMAGE := template-agent:local
+KIND_MCP_IMAGE := template-mcp-server:local
+KIND_UI_IMAGE := template-ui:local
+KIND_NS := template-agent
+KIND_DIR := .kind
+KCTL := kubectl --context $(KIND_CTX)
+
+kind: ## Deploy full stack (agent + MCP + UI) to a local Kind cluster
+	@echo "╔════════════════════════════════════════════════════════════════╗"
+	@echo "║  Kind: Deploy full stack to local Kubernetes cluster           ║"
+	@echo "║  Services: UI + Agent + MCP Server + Postgres + Redis          ║"
+	@echo "╚════════════════════════════════════════════════════════════════╝"
+	@which kind > /dev/null || (echo "Error: kind not found. Install: https://kind.sigs.k8s.io" && exit 1)
+	@which kubectl > /dev/null || (echo "Error: kubectl not found." && exit 1)
+	@# --- Step 1: Clone MCP server and UI if needed ---
+	@if [ ! -d "$(KIND_DIR)/template-mcp-server" ]; then \
+		echo "Cloning template-mcp-server (branch: $(DEMO_MCP_BRANCH))..."; \
+		mkdir -p $(KIND_DIR); \
+		git clone --branch $(DEMO_MCP_BRANCH) --depth 1 $(DEMO_MCP_REPO) $(KIND_DIR)/template-mcp-server; \
+	else \
+		echo "MCP server already cloned"; \
+	fi
+	@if [ ! -d "$(KIND_DIR)/template-ui" ]; then \
+		echo "Cloning template-ui (branch: $(DEMO_UI_BRANCH))..."; \
+		mkdir -p $(KIND_DIR); \
+		git clone --branch $(DEMO_UI_BRANCH) --depth 1 $(DEMO_UI_REPO) $(KIND_DIR)/template-ui; \
+	else \
+		echo "UI already cloned"; \
+	fi
+	@# --- Step 2: Create cluster if not exists ---
+	@if ! kind get clusters 2>/dev/null | grep -q "$(KIND_CLUSTER)"; then \
+		echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
+		kind create cluster --name $(KIND_CLUSTER) --config=- <<< '{"kind":"Cluster","apiVersion":"kind.x-k8s.io/v1alpha4","nodes":[{"role":"control-plane","kubeadmConfigPatches":["kind: InitConfiguration\nnodeRegistration:\n  kubeletExtraArgs:\n    node-labels: ingress-ready=true\n"],"extraPortMappings":[{"containerPort":80,"hostPort":80,"protocol":"TCP"},{"containerPort":443,"hostPort":443,"protocol":"TCP"}]}]}'; \
+		echo "Installing NGINX Ingress..."; \
+		$(KCTL) apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml; \
+		echo "Waiting for ingress controller pod to be scheduled..."; \
+		sleep 10; \
+		$(KCTL) wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s; \
+	else \
+		echo "Kind cluster '$(KIND_CLUSTER)' already exists"; \
+	fi
+	@# --- Step 3: Build and load images ---
+	@echo "Building agent image..."
+	@podman build -t $(KIND_IMAGE) .
+	@echo "Building MCP server image..."
+	@podman build -t $(KIND_MCP_IMAGE) -f $(KIND_DIR)/template-mcp-server/Containerfile $(KIND_DIR)/template-mcp-server
+	@echo "Building UI image..."
+	@podman build -t $(KIND_UI_IMAGE) $(KIND_DIR)/template-ui
+	@echo "Loading images into Kind (podman -> archive -> kind)..."
+	@podman save $(KIND_IMAGE) -o /tmp/kind-agent.tar && kind load image-archive /tmp/kind-agent.tar --name $(KIND_CLUSTER) && rm -f /tmp/kind-agent.tar
+	@podman save $(KIND_MCP_IMAGE) -o /tmp/kind-mcp.tar && kind load image-archive /tmp/kind-mcp.tar --name $(KIND_CLUSTER) && rm -f /tmp/kind-mcp.tar
+	@podman save $(KIND_UI_IMAGE) -o /tmp/kind-ui.tar && kind load image-archive /tmp/kind-ui.tar --name $(KIND_CLUSTER) && rm -f /tmp/kind-ui.tar
+	@# --- Step 4: Deploy ---
+	@echo "Deploying to Kind..."
+	@$(KCTL) create namespace $(KIND_NS) 2>/dev/null || true
+	@$(KCTL) apply -k deployment/overlays/kind/
+	@$(KCTL) apply -k $(KIND_DIR)/template-mcp-server/deployment/kind/
+	@echo ""
+	@echo "Waiting for pods..."
+	@$(KCTL) -n $(KIND_NS) wait --for=condition=ready pod -l component=database --timeout=60s 2>/dev/null || true
+	@$(KCTL) -n $(KIND_NS) wait --for=condition=ready pod -l component=cache --timeout=60s 2>/dev/null || true
+	@$(KCTL) -n $(KIND_NS) wait --for=condition=ready pod -l component=mcp-server --timeout=90s 2>/dev/null || true
+	@$(KCTL) -n $(KIND_NS) wait --for=condition=ready pod -l component=agent --timeout=120s 2>/dev/null || true
+	@$(KCTL) -n $(KIND_NS) wait --for=condition=ready pod -l component=ui --timeout=90s 2>/dev/null || true
+	@# --- Step 6: Port-forwards for localhost access ---
+	@echo "Setting up port-forwards..."
+	@$(KCTL) -n $(KIND_NS) port-forward svc/ui 8080:8080 &>/dev/null &
+	@$(KCTL) -n $(KIND_NS) port-forward svc/agent 5002:5002 &>/dev/null &
+	@$(KCTL) -n $(KIND_NS) port-forward svc/mcp-server 5001:5001 &>/dev/null &
+	@sleep 2
+	@echo ""
+	@echo "╔════════════════════════════════════════════════════════════════╗"
+	@echo "║  Kind cluster ready!                                           ║"
+	@echo "║  UI:         http://localhost:8080                             ║"
+	@echo "║  Agent:      http://localhost:5002                             ║"
+	@echo "║  MCP Server: http://localhost:5001                             ║"
+	@echo "╚════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "Useful commands:"
+	@echo "  Pods:      $(KCTL) -n $(KIND_NS) get pods"
+	@echo "  Logs:      $(KCTL) -n $(KIND_NS) logs -l component=agent -f"
+	@echo "  Teardown:  make kind-down"
+
+kind-down: ## Delete the Kind cluster and clean up cloned repos
+	@echo "Stopping port-forwards..."
+	@pkill -f "kubectl.*port-forward.*$(KIND_NS)" 2>/dev/null || true
+	@echo "Deleting Kind cluster '$(KIND_CLUSTER)'..."
+	@kind delete cluster --name $(KIND_CLUSTER) 2>/dev/null || true
+	@rm -rf $(KIND_DIR)
+	@echo "Kind cluster and .kind/ cleaned up."
 
 undeploy:
 	@if [ "$(filter openshift,$(MAKECMDGOALS))" = "openshift" ]; then \
@@ -359,7 +401,6 @@ undeploy:
 		echo "Removing OpenShift deployment..."; \
 		oc delete deployment,service,route,configmap,secret,pvc,buildconfig,imagestream -l app=agent 2>/dev/null || true; \
 		echo "Undeployment complete!"; \
-		exit 1; \
 	elif [ "$(filter mpp,$(MAKECMDGOALS))" = "mpp" ]; then \
 		echo "Checking for oc CLI..."; \
 		RUNTIME_NAMESPACE="$(TENANT)--template"; \
@@ -368,7 +409,6 @@ undeploy:
 		echo "Removing MPP deployment..."; \
 		oc delete deployment,service,route,configmap,secret,pvc,buildconfig,imagestream -l app=agent 2>/dev/null || true; \
 		echo "Undeployment complete!"; \
-		exit 1; \
 	else \
 		echo "Usage: make undeploy [openshift|mpp]"; \
 		echo "Available undeployment targets: openshift, mpp"; \

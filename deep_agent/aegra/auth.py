@@ -38,7 +38,7 @@ logger = get_python_logger()
 
 auth = Auth()
 
-ENABLE_AUTH = os.environ.get("ENABLE_AUTH", "false").lower() == "true"
+ENABLE_AUTH = os.environ.get("ENABLE_AUTH", "true").lower() == "true"
 SSO_ISSUER_URL = os.environ.get("SSO_ISSUER_URL", "")
 SSO_CLIENT_ID = os.environ.get("SSO_CLIENT_ID", "")
 SSO_CLIENT_SECRET = os.environ.get("SSO_CLIENT_SECRET", "")

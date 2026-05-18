@@ -6,7 +6,8 @@
       "enabled": true,
       "auth": true,
       "ssl_verify": false,
-      "timeout": 30
+      "timeout": 30,
+      "description": "Local MCP server exposing calculate_bmi, validate_email, search_web, send_email tools"
     },
     "remote-mcp-server": {
       "url": "https://remote.example.com/mcp/",
@@ -14,7 +15,8 @@
       "enabled": false,
       "auth": true,
       "ssl_verify": true,
-      "timeout": 60
+      "timeout": 60,
+      "description": "Example remote MCP server — enable when connecting to external tool providers"
     }
   }
 }

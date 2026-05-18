@@ -31,8 +31,10 @@ Aegra automatically provides:
 - Worker architecture with Redis job queue
 """
 
+import hashlib
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +52,19 @@ if str(_REPO_ROOT) not in sys.path:
 os.environ.setdefault("PYTHONPATH", str(_REPO_ROOT))
 
 _startup_done = False  # noqa: E402
+
+_graph_cache: dict[str, Any] = {}
+_graph_cache_ts: dict[str, float] = {}
+
+
+def _graph_fingerprint(
+    model_name: str,
+    system_prompt: str,
+    tool_names: list[str],
+) -> str:
+    """Stable fingerprint for graph cache keying."""
+    raw = f"{model_name}\0{system_prompt}\0{','.join(sorted(tool_names))}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 async def _ensure_startup() -> None:  # noqa: E402
@@ -83,10 +98,14 @@ async def agent(runtime: ServerRuntime) -> Any:
 
     from deepagents import create_deep_agent
 
+    from deep_agent.aegra.mcp import get_mcp_tools, refresh_access_token
     from deep_agent.src.agent.config import agent_config
-    from deep_agent.src.cache.model_cache import get_or_create_model
-    from deep_agent.src.infrastructure.backend import get_backend
-    from deep_agent.src.infrastructure.mcp import get_mcp_tools, refresh_access_token
+    from deep_agent.src.infrastructure.async_tasks import build_async_middleware
+    from deep_agent.src.infrastructure.backend import get_configured_backend
+    from deep_agent.src.infrastructure.providers import (
+        register_profiles_from_config,
+        resolve_model_from_config,
+    )
     from deep_agent.src.infrastructure.subagents import load_subagents
 
     user = getattr(runtime, "user", None)
@@ -157,28 +176,85 @@ async def agent(runtime: ServerRuntime) -> Any:
         bool(sso_token),
     )
 
-    model = get_or_create_model(model_name=model_name)
+    providers_config = agent_config.get_providers_config()
+    register_profiles_from_config(providers_config)
+    model = resolve_model_from_config(model_name, providers_config)
+
     mcp_tools = await get_mcp_tools(sso_token=sso_token)
     tools = agent_config.resolve_tools(tool_names, mcp_tools, agent_name=agent_name)
-    subagents = load_subagents(tools=mcp_tools)
-    backend = get_backend()
 
-    compiled = create_deep_agent(
-        name=agent_name,
-        model=model,
-        system_prompt=system_prompt,
-        skills=skill_paths,
-        tools=tools,
-        subagents=subagents,
-        backend=backend,
+    cache_key = _graph_fingerprint(
+        model_name,
+        system_prompt,
+        [t.name for t in tools],
     )
+    now = time.time()
+    graph_ttl = float(agent_config.get_cache_config().graph.ttl)
+    cached = _graph_cache.get(cache_key)
+    if cached is not None and (now - _graph_cache_ts.get(cache_key, 0)) < graph_ttl:
+        age = now - _graph_cache_ts[cache_key]
+        logger.warning("Graph cache HIT (age=%.1fs) — skipping rebuild", age)
+        return cached
+
+    logger.warning("Graph cache MISS — full rebuild")
+
+    subagents = load_subagents(tools=mcp_tools)
+    backend = get_configured_backend()
+
+    from deep_agent.src.infrastructure.middleware import (
+        build_middleware_list,
+        resolve_memory_param,
+    )
+
+    middleware_overrides = orchestrator_cfg.get("middleware")
+    resolved_mw = agent_config.resolve_agent_middleware(
+        model_name, middleware_overrides
+    )
+    middleware = build_middleware_list(resolved_mw)
+    memory = resolve_memory_param(resolved_mw)
+    skills_param = skill_paths if resolved_mw.skills_enabled else None
+
+    async_mw = build_async_middleware(subagents, providers_config.async_tasks)
+    if async_mw is not None:
+        middleware.append(async_mw)
+
+    create_kwargs: dict[str, Any] = {
+        "name": agent_name,
+        "model": model,
+        "system_prompt": system_prompt,
+        "skills": skills_param,
+        "tools": tools,
+        "subagents": subagents,
+        "backend": backend,
+        "middleware": middleware,
+        "memory": memory,
+    }
+
+    import inspect
+
+    create_sig = inspect.signature(create_deep_agent)
+    if "permissions" in create_sig.parameters:
+        try:
+            from deep_agent.src.infrastructure.permissions import build_permissions
+
+            permissions = build_permissions(agent_config.get_filesystem_config())
+            if permissions:
+                create_kwargs["permissions"] = permissions
+        except (ImportError, TypeError):
+            pass
+
+    compiled = create_deep_agent(**create_kwargs)
+
+    _graph_cache[cache_key] = compiled
+    _graph_cache_ts[cache_key] = time.time()
 
     tool_count = len(tools)
     sub_count = len(subagents) if subagents else 0
     logger.info(
-        "Agent ready: %d tool(s), %d subagent(s), mcp_auth=%s",
+        "Agent ready: %d tool(s), %d subagent(s), %d middleware, mcp_auth=%s",
         tool_count,
         sub_count,
+        len(middleware),
         bool(sso_token),
     )
 

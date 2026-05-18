@@ -6,7 +6,7 @@ metadata:
     app: agent
     component: agent
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -43,6 +43,11 @@ spec:
                 configMapKeyRef:
                   name: agent-config
                   key: AGENT_PORT
+            - name: ENABLE_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: ENABLE_AUTH
             - name: PYTHON_LOG_LEVEL
               valueFrom:
                 configMapKeyRef:
@@ -102,51 +107,41 @@ spec:
                   name: agent-secrets
                   key: GOOGLE_APPLICATION_CREDENTIALS_CONTENT
                   optional: true
-            - name: REDIS_HOST
+            - name: SSO_ISSUER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: SSO_ISSUER_URL
+                  optional: true
+            - name: SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: SSO_CLIENT_ID
+                  optional: true
+            - name: SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: SSO_CLIENT_SECRET
+                  optional: true
+            - name: VLLM_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: VLLM_BASE_URL
+                  optional: true
+            - name: VLLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: VLLM_API_KEY
+                  optional: true
+            - name: REDIS_URL
               valueFrom:
                 configMapKeyRef:
                   name: agent-config
-                  key: REDIS_HOST
-            - name: REDIS_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: REDIS_PORT
-            - name: REDIS_DB
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: REDIS_DB
-            - name: REDIS_MAX_CONNECTIONS
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: REDIS_MAX_CONNECTIONS
-            - name: OTEL_ENABLED
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: OTEL_ENABLED
-            - name: OTEL_SERVICE_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: OTEL_SERVICE_NAME
-            - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: OTEL_EXPORTER_OTLP_ENDPOINT
-            - name: OTEL_TRACES_EXPORTER
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: OTEL_TRACES_EXPORTER
-            - name: OTEL_METRICS_EXPORTER
-              valueFrom:
-                configMapKeyRef:
-                  name: agent-config
-                  key: OTEL_METRICS_EXPORTER
+                  key: REDIS_URL
             - name: SSL_KEYFILE
               valueFrom:
                 secretKeyRef:
@@ -189,9 +184,9 @@ spec:
             httpGet:
               path: /health
               port: 5002
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 5
-            failureThreshold: 30
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /health
@@ -210,9 +205,9 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "100m"
-            limits:
               memory: "512Mi"
-              cpu: "500m"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
       restartPolicy: Always

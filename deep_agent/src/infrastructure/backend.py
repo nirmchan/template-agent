@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from deepagents.backends import LocalShellBackend
 
@@ -69,10 +70,17 @@ def _ensure_venv(root_dir: Path, pyproject: Path) -> Path:
     project_hash = hashlib.sha256(str(root_dir.resolve()).encode()).hexdigest()[:12]
     toml_hash = hashlib.sha256(pyproject.read_bytes()).hexdigest()[:8]
 
-    # Prefer /app/.cache inside containers (always writable); fall back to
-    # the user home cache dir for local / non-container runs.
+    # Prefer /app/.cache inside containers (always writable on OpenShift);
+    # fall back to /tmp then ~/.cache for local / non-container runs.
+    # OpenShift runs with arbitrary UID so Path.home() may not resolve.
     app_cache = Path("/app/.cache")
-    base_cache = app_cache if app_cache.parent.is_dir() else Path.home() / ".cache"
+    if app_cache.parent.is_dir():
+        base_cache = app_cache
+    else:
+        try:
+            base_cache = Path.home() / ".cache"
+        except (RuntimeError, KeyError):
+            base_cache = Path("/tmp/.cache")  # noqa: S108 — OpenShift arbitrary UID fallback
     cache_dir = base_cache / "template-agent" / "venvs"
     cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)  # User-only permissions
 
@@ -194,12 +202,145 @@ def get_backend(
     return _backend
 
 
-def initialize_backend() -> LocalShellBackend:
-    """Pre-initialize the singleton backend at server startup.
+def get_configured_backend() -> LocalShellBackend | Any:
+    """Return the backend configured by filesystem.yaml.
 
-    Calling this early avoids the venv-creation penalty on the first request.
+    Reads the backend type from config and builds the appropriate backend:
+    - state: StateBackend (thread-scoped scratch, recommended for production)
+    - composite: CompositeBackend (routes paths to different backends)
+    - store: StoreBackend (cross-thread persistent via LangGraph Store)
+    - local_shell: LocalShellBackend (local dev only — NOT for deployed agents)
+
+    Falls back to StateBackend if config is missing or invalid.
     """
-    logger.info("Pre-initializing backend (venv + dependency install)")
-    backend = get_backend()
-    logger.info("Backend initialization complete")
-    return backend
+    from deep_agent.src.agent.config.filesystem import load_filesystem_config
+
+    config_path = agent_config.base_dir / "filesystem.yaml"
+    fs_config = load_filesystem_config(config_path)
+
+    backend_type = fs_config.backend.type
+
+    if backend_type == "state":
+        return _build_state_backend()
+
+    if backend_type == "store":
+        return _build_store_backend(fs_config)
+
+    if backend_type == "composite":
+        return _build_composite_backend(fs_config)
+
+    if backend_type == "local_shell":
+        logger.warning(
+            "LocalShellBackend accesses the host directly. "
+            "Do NOT use in deployed agents (OpenShift, LangSmith, etc.). "
+            "Set backend.type to 'state' or 'composite' for production."
+        )
+        return get_backend(
+            timeout=fs_config.backend.local_shell.timeout,
+            max_output_bytes=fs_config.backend.local_shell.max_output_bytes,
+        )
+
+    # Fallback for any backend type not explicitly handled above
+    logger.warning("Unknown backend type '%s', falling back to state", backend_type)  # type: ignore[unreachable]
+    return _build_state_backend()
+
+
+def _build_state_backend() -> Any:
+    """Build a StateBackend factory (thread-scoped scratch space).
+
+    Recommended for production. Files persist across turns within a thread
+    via checkpointer but are not shared across threads.
+
+    Returns the StateBackend class as a factory — create_deep_agent calls it
+    with ToolRuntime at execution time.
+    """
+    try:
+        from deepagents.backends.state import StateBackend
+
+        logger.info("Using StateBackend (thread-scoped scratch)")
+        return StateBackend
+    except ImportError:
+        logger.warning("StateBackend not available, falling back to LocalShellBackend")
+        return get_backend()
+
+
+def _build_store_backend(fs_config: Any) -> Any:
+    """Build a StoreBackend (cross-thread persistent via LangGraph Store).
+
+    Scope determines namespace partitioning:
+    - user: per-user private memory (recommended)
+    - assistant: shared across all users of one assistant
+    - org: shared across all users and assistants
+    """
+    try:
+        from deepagents.backends.store import StoreBackend
+
+        scope = getattr(fs_config.backend, "store", None)
+        scope_name = scope.scope if scope else "user"
+
+        namespace_factories = {
+            "user": lambda rt: (
+                rt.server_info.assistant_id,
+                rt.server_info.user.identity,
+            ),
+            "assistant": lambda rt: (rt.server_info.assistant_id,),
+            "org": lambda rt: (rt.context.org_id,),
+        }
+
+        namespace = namespace_factories.get(scope_name)
+        if namespace is None:
+            logger.warning("Unknown store scope '%s', using 'user'", scope_name)
+            namespace = namespace_factories["user"]
+
+        logger.info("Using StoreBackend (scope=%s)", scope_name)
+        return StoreBackend(namespace=namespace)
+    except ImportError:
+        logger.warning("StoreBackend not available, falling back to StateBackend")
+        return _build_state_backend()
+
+
+def _build_composite_backend(fs_config: Any) -> Any:
+    """Build a CompositeBackend from route config.
+
+    Production-recommended pattern: StateBackend as default (scratch)
+    with StoreBackend routes for persistent paths like /memories/.
+    """
+    try:
+        from deepagents.backends.composite import CompositeBackend
+        from deepagents.backends.state import StateBackend
+
+        state_backend = StateBackend()
+        store_backend = None
+
+        backend_map: dict[str, Any] = {
+            "state": state_backend,
+        }
+
+        if any(v == "store" for v in fs_config.backend.routes.values()):
+            store_backend = _build_store_backend(fs_config)
+            backend_map["store"] = store_backend
+
+        if any(v == "local_shell" for v in fs_config.backend.routes.values()):
+            logger.warning(
+                "local_shell in composite routes — not recommended for production"
+            )
+            backend_map["local_shell"] = get_backend(
+                timeout=fs_config.backend.local_shell.timeout,
+                max_output_bytes=fs_config.backend.local_shell.max_output_bytes,
+            )
+
+        routes: dict[str, Any] = {}
+        for path_prefix, backend_name in fs_config.backend.routes.items():
+            if backend_name in backend_map:
+                routes[path_prefix] = backend_map[backend_name]
+            else:
+                logger.warning(
+                    "Unknown backend '%s' in route for '%s'", backend_name, path_prefix
+                )
+
+        default_backend = routes.pop("/", state_backend)
+        logger.info("Using CompositeBackend with %d route(s)", len(routes))
+        return CompositeBackend(default=default_backend, routes=routes)
+    except ImportError:
+        logger.warning("CompositeBackend not available, falling back to StateBackend")
+        return _build_state_backend()

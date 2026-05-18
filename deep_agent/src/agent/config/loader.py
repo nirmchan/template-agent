@@ -1,14 +1,15 @@
 """Agent configuration loader and singleton.
 
 This module provides the main AgentConfig singleton class that orchestrates loading
-agent configurations from the config/ directory at the repository root. It eagerly
-loads orchestrator, subagents, skills, and MCP server configurations at
-initialization time.
+agent configurations from the config/agent/ directory at the repository root. It
+loads the unified runtime/agent.yaml once, then extracts sections for providers,
+middleware, and filesystem config. Orchestrator, subagents, skills, and MCP server
+configurations are loaded eagerly at initialization time.
 
 Why this exists:
-    All agent configurations (orchestrator, subagents, skills, MCP servers) need
-    to be loaded once and made available throughout the application. This singleton
-    ensures configs are loaded only once and provides convenient access methods.
+    All agent configurations need to be loaded once and made available throughout
+    the application. This singleton ensures configs are loaded only once and
+    provides convenient access methods.
 
 Classes:
     AgentConfig: Singleton for managing all agent configuration loading
@@ -18,11 +19,21 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from deep_agent.src.exceptions import AppException, ErrorCodes
 from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
+from .cache import CacheFileConfig
+from .filesystem import FilesystemFileConfig
+from .middleware import (
+    MiddlewareFileConfig,
+    ResolvedMiddlewareConfig,
+    resolve_middleware,
+)
 from .parser import inject_runtime_values, parse_frontmatter
+from .providers import ProvidersFileConfig
 from .resolver import resolve_skill_paths, resolve_tools
 
 logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
@@ -49,6 +60,11 @@ class AgentConfig:
     _subagents: dict[str, dict[str, Any]]
     _mcp_servers: dict[str, Any]
     _available_skills: dict[str, Path]
+    _middleware_config: MiddlewareFileConfig
+    _filesystem_config: FilesystemFileConfig
+    _providers_config: ProvidersFileConfig
+    _cache_config: CacheFileConfig
+    _name: str
 
     def __new__(cls, base_dir: Path | None = None) -> "AgentConfig":
         """Create or return the singleton instance.
@@ -78,7 +94,26 @@ class AgentConfig:
         self._initialized = True
         self._configs_loaded = False
 
-    def _ensure_loaded(self):
+    def _load_agent_yaml(self) -> dict[str, Any]:
+        """Load the unified runtime/agent.yaml once.
+
+        Returns:
+            Raw dict from agent.yaml, or empty dict if missing.
+        """
+        agent_yaml = self._base_dir / "runtime" / "agent.yaml"
+        if not agent_yaml.is_file():
+            logger.warning("No runtime/agent.yaml found — using defaults")
+            return {}
+
+        try:
+            raw = yaml.safe_load(agent_yaml.read_text()) or {}
+            logger.info("Loaded runtime/agent.yaml")
+            return raw
+        except Exception as e:
+            logger.warning("Failed to parse runtime/agent.yaml, using defaults: %s", e)
+            return {}
+
+    def _ensure_loaded(self) -> None:
         """Lazy load configurations on first access.
 
         This ensures logging is properly configured before we try to log.
@@ -87,6 +122,37 @@ class AgentConfig:
             return
 
         logger.info("Loading agent configurations...")
+
+        raw = self._load_agent_yaml()
+
+        # Extract middleware section (defaults + harness_profiles as profiles)
+        self._middleware_config = MiddlewareFileConfig.model_validate(
+            {
+                "defaults": raw.get("middleware", {}),
+                "profiles": raw.get("harness_profiles", {}),
+            }
+        )
+
+        # Extract filesystem section
+        self._filesystem_config = FilesystemFileConfig.model_validate(
+            raw.get("filesystem", {})
+        )
+
+        # Extract providers section (shares harness_profiles with middleware)
+        self._providers_config = ProvidersFileConfig.model_validate(
+            {
+                "resolve_strategy": raw.get("resolve_strategy", "legacy"),
+                "providers": raw.get("providers", {}),
+                "harness_profiles": raw.get("harness_profiles", {}),
+                "async_tasks": raw.get("async_tasks", {}),
+            }
+        )
+
+        # Extract cache section
+        self._cache_config = CacheFileConfig.model_validate(raw.get("cache", {}))
+
+        # Extract top-level identity
+        self._name = raw.get("name", "Agent")
         # Scan skills first, as orchestrator and subagents need them for resolution
         self._available_skills: dict[str, Path] = self._scan_available_skills()
         self._orchestrator: dict[str, Any] = self._load_orchestrator()
@@ -187,7 +253,7 @@ class AgentConfig:
 
         try:
             data = json.loads(mcp_path.read_bytes())
-            servers = data.get("mcpServers", {})
+            servers: dict[str, Any] = data.get("mcpServers", {})
             logger.info(f"Loaded {len(servers)} MCP server config(s)")
             return servers
         except Exception as e:
@@ -260,6 +326,70 @@ class AgentConfig:
         """
         self._ensure_loaded()
         return self._mcp_servers
+
+    def get_providers_config(self) -> ProvidersFileConfig:
+        """Get the pre-loaded providers configuration.
+
+        Returns:
+            The parsed providers.yaml config (strategy, profiles, async tasks).
+        """
+        self._ensure_loaded()
+        return self._providers_config
+
+    def get_filesystem_config(self) -> FilesystemFileConfig:
+        """Get the pre-loaded filesystem configuration.
+
+        Returns:
+            The parsed filesystem.yaml config (backend, permissions, settings).
+        """
+        self._ensure_loaded()
+        return self._filesystem_config
+
+    def get_cache_config(self) -> CacheFileConfig:
+        """Get the pre-loaded cache configuration.
+
+        Returns:
+            The parsed cache section (TTLs, feature flags, size limits).
+        """
+        self._ensure_loaded()
+        return self._cache_config
+
+    def get_name(self) -> str:
+        """Get the agent display name from config.
+
+        Returns:
+            The agent name as configured in agent.yaml (top-level `name` field).
+        """
+        self._ensure_loaded()
+        return self._name
+
+    def get_middleware_config(self) -> MiddlewareFileConfig:
+        """Get the pre-loaded middleware file configuration.
+
+        Returns:
+            The parsed middleware.yaml config (defaults + profiles).
+        """
+        self._ensure_loaded()
+        return self._middleware_config
+
+    def resolve_agent_middleware(
+        self,
+        model_name: str,
+        agent_overrides: dict[str, Any] | None = None,
+    ) -> ResolvedMiddlewareConfig:
+        """Resolve middleware config for a specific agent.
+
+        Merges: global defaults → profile (from model) → per-agent overrides.
+
+        Args:
+            model_name: Model name from agent frontmatter.
+            agent_overrides: Optional middleware: block from frontmatter.
+
+        Returns:
+            Fully resolved middleware configuration.
+        """
+        self._ensure_loaded()
+        return resolve_middleware(self._middleware_config, model_name, agent_overrides)
 
     def get_pyproject_path(self) -> Path:
         """Get the skill sandbox pyproject.toml path.

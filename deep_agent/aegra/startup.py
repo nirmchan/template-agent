@@ -59,9 +59,9 @@ async def run_startup() -> dict[str, str]:
 async def _validate_config() -> str:
     """Validate core settings."""
     try:
-        from deep_agent.src.settings import validate_config
+        from deep_agent.src.settings import settings, validate_config
 
-        validate_config()
+        validate_config(settings)
         return "ok"
     except Exception as exc:
         logger.warning("Config validation warning: %s", exc)
@@ -100,7 +100,7 @@ async def _warm_caches() -> str:
 
         from deep_agent.src.cache.warming import warm_caches
 
-        await warm_caches()
+        warm_caches()
         return "ok"
     except Exception as exc:
         logger.warning("Cache warming failed: %s", exc)

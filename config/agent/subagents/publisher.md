@@ -1,5 +1,6 @@
 ---
 name: publisher
+type: default
 description: >
   Publishes fitness reports to users via email. Formats reports into
   Gmail-compatible HTML and sends them to a recipient. Expects complete

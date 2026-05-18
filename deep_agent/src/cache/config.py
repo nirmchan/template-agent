@@ -14,6 +14,11 @@ Environment variables:
     CACHE_METRICS_ENABLED:         Log cache hit/miss counters (default: false)
     CACHE_WARMING_ENABLED:         Pre-create models at startup (default: false)
     CACHE_REDIS_ENABLED:           Enable Redis as L2 cache layer (default: false)
+
+Note:
+    MCP tool cache TTL and compiled graph cache TTL are configured via
+    config/agent/runtime/agent.yaml (cache.mcp.ttl, cache.graph.ttl),
+    NOT via environment variables.
 """
 
 from pydantic import Field

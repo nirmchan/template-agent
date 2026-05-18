@@ -10,7 +10,7 @@ Environment variables:
     PYTHON_LOG_LEVEL: standard level name (default: INFO)
 
 Context binding:
-    ``bind_request_context(request_id, user_id, thread_id)`` adds
+    ``bind_request_context(trace_id, user_id, thread_id)`` adds
     per-request fields to every subsequent log line in the same
     async context.  Call at request entry; structlog's context-var
     support auto-clears on context exit.
@@ -78,9 +78,7 @@ OBSERVABILITY_LOGGERS = {
     "langfuse.callback",
 }
 
-SILENT_LOGGERS = {
-    "opentelemetry.context",
-}
+SILENT_LOGGERS: set[str] = set()
 
 THIRD_PARTY_LOGGERS: set[str] = (
     HTTP_CLIENT_LOGGERS
@@ -105,13 +103,13 @@ for _name in SILENT_LOGGERS:
 # Request context (per-request fields via contextvars)
 # ---------------------------------------------------------------------------
 
-_request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+_trace_id_var: ContextVar[str | None] = ContextVar("trace_id", default=None)
 _user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
 _thread_id_var: ContextVar[str | None] = ContextVar("thread_id", default=None)
 
 
 def bind_request_context(
-    request_id: str | None = None,
+    trace_id: str | None = None,
     user_id: str | None = None,
     thread_id: str | None = None,
 ) -> None:
@@ -120,8 +118,8 @@ def bind_request_context(
     Call this once at request entry. The values are automatically
     injected into every log line within the same async context.
     """
-    if request_id:
-        _request_id_var.set(request_id)
+    if trace_id:
+        _trace_id_var.set(trace_id)
     if user_id:
         _user_id_var.set(user_id)
     if thread_id:
@@ -130,7 +128,7 @@ def bind_request_context(
 
 def clear_request_context() -> None:
     """Reset request context (called at request exit)."""
-    _request_id_var.set(None)
+    _trace_id_var.set(None)
     _user_id_var.set(None)
     _thread_id_var.set(None)
 
@@ -139,11 +137,11 @@ def _inject_request_context(
     logger: Any, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
     """Structlog processor: inject request context vars into every log event."""
-    rid = _request_id_var.get()
+    rid = _trace_id_var.get()
     uid = _user_id_var.get()
     tid = _thread_id_var.get()
     if rid:
-        event_dict["request_id"] = rid
+        event_dict["trace_id"] = rid
     if uid:
         event_dict["user_id"] = uid
     if tid:

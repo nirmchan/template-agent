@@ -26,7 +26,7 @@ REDIS_RETRY_ON_TIMEOUT = (
 )
 REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "aegra:")
 
-_client = None
+_client: Any = None
 
 
 def get_redis_config() -> dict[str, Any]:
@@ -40,13 +40,13 @@ def get_redis_config() -> dict[str, Any]:
     }
 
 
-def get_redis_client():
+def get_redis_client() -> Any:
     """Get or create a Redis client with connection pooling.
 
     Returns:
         Redis client instance, or None if Redis is unavailable.
     """
-    global _client
+    global _client  # noqa: PLW0603
     if _client is not None:
         return _client
 
@@ -80,7 +80,8 @@ def cache_get(key: str) -> str | None:
     if client is None:
         return None
     try:
-        return client.get(f"{REDIS_KEY_PREFIX}{key}")
+        val = client.get(f"{REDIS_KEY_PREFIX}{key}")
+        return str(val) if val is not None else None
     except Exception:
         logger.debug("Cache read failed for key '%s'", key, exc_info=True)
         return None

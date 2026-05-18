@@ -3,7 +3,6 @@ kind: Service
 metadata:
   name: postgres
   labels:
-    app: agent
     component: database
 spec:
   type: ClusterIP
@@ -13,5 +12,4 @@ spec:
       protocol: TCP
       name: postgres
   selector:
-    app: agent
     component: database

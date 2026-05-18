@@ -10,7 +10,6 @@ resources:
   - deployment.yaml
   - service.yaml
   - route.yaml
-  - jaeger-route.yaml
   - pdb.yaml
   - hpa.yaml
 
@@ -34,16 +33,16 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/resources/requests/memory
-        value: "256Mi"
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/requests/cpu
-        value: "100m"
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/memory
         value: "512Mi"
       - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "250m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+      - op: replace
         path: /spec/template/spec/containers/0/resources/limits/cpu
-        value: "500m"
+        value: "1000m"
 
   # PostgreSQL deployment patches (from base)
   - target:

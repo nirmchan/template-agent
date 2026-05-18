@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from deep_agent.src.infrastructure.mcp import (
+from deep_agent.aegra.mcp import (
     _is_auth_error,
     _is_connection_error,
     _jwt_exp,

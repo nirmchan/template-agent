@@ -46,20 +46,21 @@ Client examples (Streamlit, Python async) are in [`examples/`](./examples/).
 
 | Variable | Default | Required |
 |---|---|---|
-| `AGENT_HOST` | `0.0.0.0` | No |
-| `AGENT_PORT` | `5002` | No |
-| `PYTHON_LOG_LEVEL` | `INFO` | No |
 | `POSTGRES_USER` | `pgvector` | Yes |
 | `POSTGRES_PASSWORD` | `pgvector` | Yes |
 | `POSTGRES_DB` | `pgvector` | Yes |
 | `POSTGRES_HOST` | `pgvector` | Yes |
 | `POSTGRES_PORT` | `5432` | Yes |
+| `REDIS_URL` | `redis://redis:6379/0` | No |
 | `GOOGLE_SERVICE_ACCOUNT_FILE` | — | Yes |
 | `LANGFUSE_PUBLIC_KEY` | — | No |
 | `LANGFUSE_SECRET_KEY` | — | No |
 | `LANGFUSE_BASE_URL` | — | No |
-| `AGENT_SSL_KEYFILE` | — | No |
-| `AGENT_SSL_CERTFILE` | — | No |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `development` | No |
+| `SSL_KEYFILE` | — | No |
+| `SSL_CERTFILE` | — | No |
+
+Runtime configuration (cache TTLs, memory settings, agent identity) is in `config/agent/runtime/agent.yaml`.
 
 ## Project Structure
 
@@ -181,7 +182,7 @@ Open http://localhost:3000, set **Deployment URL** = `http://127.0.0.1:2024`, **
 make aegra-clone-ui
 
 # Start everything via LangGraph CLI
-langgraph up -d compose.aegra.yaml --port 2024 --wait
+langgraph up -d compose.yaml --port 2024 --wait
 ```
 
 **Option C — Build a standalone Docker image:**

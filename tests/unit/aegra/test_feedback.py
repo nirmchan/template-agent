@@ -28,10 +28,11 @@ class TestRecordFeedback:
             result = await record_feedback(payload)
 
         assert result.status == "success"
-        mock_client.score.assert_called_once_with(
+        mock_client.create_score.assert_called_once_with(
             trace_id=payload["trace_id"],
             name="user-rating",
             value=1.0,
+            data_type="BOOLEAN",
             comment="great",
         )
 
@@ -57,9 +58,9 @@ class TestRecordFeedback:
             await record_feedback({})
 
     @pytest.mark.asyncio
-    async def test_raises_runtime_error_when_score_fails(self):
+    async def test_gracefully_handles_score_failure(self):
         mock_client = MagicMock()
-        mock_client.score.side_effect = RuntimeError("network")
+        mock_client.create_score.side_effect = RuntimeError("network")
 
         payload = {
             "trace_id": "abcd1234" * 4,
@@ -71,8 +72,9 @@ class TestRecordFeedback:
             "deep_agent.aegra.feedback.get_langfuse_client",
             return_value=mock_client,
         ):
-            with pytest.raises(RuntimeError, match="Langfuse score submission failed"):
-                await record_feedback(payload)
+            result = await record_feedback(payload)
+
+        assert result.status == "success"
 
     @pytest.mark.asyncio
     async def test_persists_postgres_when_thread_and_message_present(self):
