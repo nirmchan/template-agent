@@ -21,6 +21,9 @@ logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 
 def build_middleware_list(
     resolved: ResolvedMiddlewareConfig,
+    *,
+    model: Any | None = None,
+    backend: Any | None = None,
 ) -> list[Any]:
     """Build a list of middleware instances from resolved config.
 
@@ -31,6 +34,8 @@ def build_middleware_list(
 
     Args:
         resolved: Fully resolved middleware configuration for this agent.
+        model: Chat model instance for SummarizationToolMiddleware.
+        backend: Backend instance for SummarizationToolMiddleware.
 
     Returns:
         List of middleware instances to pass as middleware= parameter.
@@ -43,7 +48,10 @@ def build_middleware_list(
     middlewares: list[Any] = []
 
     if resolved.summarization_tool_enabled:
-        _append_if_built(middlewares, _build_summarization_tool_middleware())
+        _append_if_built(
+            middlewares,
+            _build_summarization_tool_middleware(model=model, backend=backend),
+        )
 
     _append_guardrails(middlewares, resolved)
 
@@ -216,19 +224,26 @@ def _build_pii_middleware(config: Any) -> list[Any]:
     return results
 
 
-def _build_summarization_tool_middleware() -> Any | None:
+def _build_summarization_tool_middleware(
+    *,
+    model: Any | None = None,
+    backend: Any | None = None,
+) -> Any | None:
     """Build SummarizationToolMiddleware instance.
 
     This gives the agent a tool to proactively trigger summarization
     at opportune moments (e.g., between tasks) rather than only at
     fixed token thresholds.
     """
+    if model is None or backend is None:
+        logger.warning("Summarization tool requires model and backend; skipping")
+        return None
     try:
         from deepagents.middleware.summarization import (
             create_summarization_tool_middleware,
         )
 
-        return create_summarization_tool_middleware()
+        return create_summarization_tool_middleware(model, backend)
     except ImportError:
         logger.debug(
             "SummarizationToolMiddleware not available in this deepagents version"

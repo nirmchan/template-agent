@@ -210,7 +210,7 @@ async def agent(runtime: ServerRuntime) -> Any:
     resolved_mw = agent_config.resolve_agent_middleware(
         model_name, middleware_overrides
     )
-    middleware = build_middleware_list(resolved_mw)
+    middleware = build_middleware_list(resolved_mw, model=model, backend=backend)
     memory = resolve_memory_param(resolved_mw)
     skills_param = skill_paths if resolved_mw.skills_enabled else None
 
