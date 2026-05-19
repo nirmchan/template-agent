@@ -272,10 +272,12 @@ class AgentConfig:
             return {}
 
         skills = {}
-        for skill_path in skills_dir.iterdir():
-            if skill_path.is_dir() and not skill_path.name.startswith("."):
-                skills[skill_path.name] = skill_path
-                logger.debug(f"Found skill: {skill_path.name}")
+        for skill_md in skills_dir.rglob("SKILL.md"):
+            skill_dir = skill_md.parent
+            if "overlay" in skill_dir.parts:
+                continue
+            skills[skill_dir.name] = skill_dir
+            logger.debug(f"Found skill: {skill_dir.name}")
 
         logger.info(f"Scanned {len(skills)} available skill(s)")
         return skills

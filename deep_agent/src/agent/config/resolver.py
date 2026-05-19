@@ -46,6 +46,14 @@ def resolve_skill_paths(
             skill_path = available_skills[skill_name]
             skill_paths.append(str(skill_path))
             logger.debug(f"Agent '{agent_name}' resolved skill: {skill_name}")
+            overlay_dir = skill_path / "overlay"
+            if overlay_dir.is_dir():
+                for source_dir in sorted(overlay_dir.iterdir()):
+                    if source_dir.is_dir() and (source_dir / "SKILL.md").is_file():
+                        skill_paths.append(str(source_dir))
+                        logger.info(
+                            f"Agent '{agent_name}' overlay: {source_dir.name}/{skill_name}"
+                        )
         else:
             missing.append(skill_name)
 

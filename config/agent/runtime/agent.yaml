@@ -108,6 +108,14 @@ middleware:
     enabled: true
   skills:
     enabled: true
+    overlays: []
+    # overlays:
+    #   - name: team-sops
+    #     host: "https://gitlab.example.com"
+    #     project: "org/skills-overlay"
+    #     ref: "main"
+    #     path: "products/my-product"
+    #     priority: 1
   # --- Production guardrails ---
   model_call_limit:
     enabled: true

@@ -24,6 +24,30 @@ spec:
     spec:
       serviceAccountName: agent
       terminationGracePeriodSeconds: 60
+      volumes:
+        - name: agent-config
+          persistentVolumeClaim:
+            claimName: agent-config
+      initContainers:
+        - name: overlay-sync
+          image: agent:latest
+          command: ["python", "-m", "deep_agent.src.infrastructure.overlay", "--sync-all"]
+          volumeMounts:
+            - name: agent-config
+              mountPath: "/app/config/agent"
+          env:
+            - name: GITLAB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: GITLAB_TOKEN
+                  optional: true
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
       containers:
         - name: agent
           image: agent:latest
@@ -174,6 +198,9 @@ spec:
                 configMapKeyRef:
                   name: agent-config
                   key: REQUEST_LOG_BODY_MAX_SIZE
+          volumeMounts:
+            - name: agent-config
+              mountPath: "/app/config/agent"
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
