@@ -113,7 +113,7 @@ middleware:
     #   - name: team-sops
     #     host: "https://gitlab.example.com"
     #     project: "org/skills-overlay"
-    #     ref: "main"
+    #     ref: "main"   # Ideally, this would be a tag
     #     path: "products/my-product"
     #     priority: 1
   # --- Production guardrails ---
