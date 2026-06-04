@@ -97,7 +97,8 @@ def _inherit_from_orchestrator(
     """Fill in missing model/mcps from the parent orchestrator config.
 
     Mutates *agent_cfg* in place. Only inherits fields the subagent did not
-    explicitly set.
+    explicitly set. Falls back to settings.DEFAULT_MODEL when neither the
+    subagent nor the orchestrator provides a model.
     """
     if not agent_cfg.get("model"):
         parent_model = orchestrator_cfg.get("model", "")
@@ -108,6 +109,14 @@ def _inherit_from_orchestrator(
                 parent_model,
             )
             agent_cfg["model"] = parent_model
+        else:
+            logger.warning(
+                "Subagent '%s' has no model and orchestrator has no model — "
+                "falling back to DEFAULT_MODEL: %s",
+                name,
+                settings.DEFAULT_MODEL,
+            )
+            agent_cfg["model"] = settings.DEFAULT_MODEL
 
     if not agent_cfg.get("mcps"):
         parent_mcps = orchestrator_cfg.get("mcps", [])

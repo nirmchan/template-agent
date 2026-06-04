@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     REQUEST_LOG_BODY_MAX_SIZE: int = Field(default=10240)
 
     # ── Model ─────────────────────────────────────────────────────────
+    DEFAULT_MODEL: str = Field(default="gemini-2.5-pro")
     MAX_OUTPUT_TOKENS: int = Field(default=8192)
 
     # ── Database (PostgreSQL) ─────────────────────────────────────────

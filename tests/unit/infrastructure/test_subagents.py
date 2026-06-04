@@ -28,22 +28,82 @@ class TestLoadSubagents:
 
             assert result is None
 
-    def test_load_subagents_raises_error_when_model_missing(self):
-        """Test that load_subagents raises ValueError when model is missing."""
-        with patch(
-            "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
-        ) as mock_get_configs:
+    def test_load_subagents_falls_back_to_default_model(self):
+        """Test that subagent with no model inherits DEFAULT_MODEL when orchestrator also lacks one."""
+        mock_model = MagicMock()
+        mock_subagent = MagicMock()
+
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_orchestrator_config"
+            ) as mock_get_orch,
+            patch(
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
+            ) as mock_create_model,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+            patch(
+                "deep_agent.src.infrastructure.subagents.settings"
+            ) as mock_settings,
+        ):
+            mock_settings.DEFAULT_MODEL = "gemini-2.5-pro"
+            mock_get_configs.return_value = {
+                "dataverseagent": {
+                    "name": "dataverseagent",
+                    "description": "Test agent",
+                    "body": "Test prompt",
+                }
+            }
+            mock_get_orch.return_value = {
+                "name": "orchestrator",
+                "body": "Orchestrator prompt",
+            }
+            mock_create_model.return_value = mock_model
+            mock_sa.return_value = mock_subagent
+
+            result = load_subagents(tools=[])
+
+            assert result == [mock_subagent]
+            mock_create_model.assert_called_once_with(model_name="gemini-2.5-pro")
+
+    def test_load_subagents_inherits_model_from_orchestrator(self):
+        """Test that subagent with no model inherits from orchestrator config."""
+        mock_model = MagicMock()
+        mock_subagent = MagicMock()
+
+        with (
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_all_subagent_configs"
+            ) as mock_get_configs,
+            patch(
+                "deep_agent.src.infrastructure.subagents.agent_config.get_orchestrator_config"
+            ) as mock_get_orch,
+            patch(
+                "deep_agent.src.infrastructure.subagents.get_or_create_model"
+            ) as mock_create_model,
+            patch("deep_agent.src.infrastructure.subagents.SubAgent") as mock_sa,
+        ):
             mock_get_configs.return_value = {
                 "analyst": {
                     "name": "analyst",
                     "description": "Test analyst",
                     "body": "Test prompt",
-                    # Missing 'model' field
                 }
             }
+            mock_get_orch.return_value = {
+                "name": "orchestrator",
+                "model": "gemini-2.5-flash",
+                "body": "Orchestrator prompt",
+            }
+            mock_create_model.return_value = mock_model
+            mock_sa.return_value = mock_subagent
 
-            with pytest.raises(SubAgentError, match="missing required 'model' field"):
-                load_subagents(tools=[])
+            result = load_subagents(tools=[])
+
+            assert result == [mock_subagent]
+            mock_create_model.assert_called_once_with(model_name="gemini-2.5-flash")
 
     def test_load_single_subagent_minimal(self):
         """Test loading a single subagent with minimal config."""
