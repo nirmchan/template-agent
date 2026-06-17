@@ -38,10 +38,11 @@ from .resolver import resolve_skill_paths, resolve_tools
 
 logger = get_python_logger(log_level=settings.PYTHON_LOG_LEVEL)
 
-# Default config directory path (repo-root config/agent/)
-_AGENT_CONFIG_DIR = (
-    Path(__file__).parent.parent.parent.parent.parent / "config" / "agent"
-)
+# Config directory path - read from CONFIG_PATH env var for base image pattern
+# Falls back to repo-root config/agent/ for backward compatibility
+import os
+_AGENT_CONFIG_DIR = Path(os.getenv("CONFIG_PATH",
+    str(Path(__file__).parent.parent.parent.parent.parent / "config" / "agent")))
 
 
 class AgentConfig:
