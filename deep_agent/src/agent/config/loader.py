@@ -119,6 +119,12 @@ class AgentConfig:
 
         This ensures logging is properly configured before we try to log.
         """
+        # If auto-reload is enabled, always reload from disk
+        if settings.CONFIG_AUTO_RELOAD:
+            if self._configs_loaded:
+                logger.debug("CONFIG_AUTO_RELOAD=true: reloading configs from disk")
+            self._configs_loaded = False
+        
         if self._configs_loaded:
             return
 
