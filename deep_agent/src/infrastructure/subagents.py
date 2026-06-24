@@ -28,6 +28,10 @@ from deep_agent.src.agent.config import agent_config
 from deep_agent.src.agent.config.model import ModelSpec, infer_provider, parse_model_config
 from deep_agent.src.cache.model_cache import get_or_create_model_from_spec
 from deep_agent.src.exceptions import LLMError, SubAgentError
+from deep_agent.src.infrastructure.middleware import (
+    _mcp_tool_names_from_tools,
+    build_audit_middleware,
+)
 from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
@@ -294,6 +298,23 @@ def _build_fallback_middleware(spec: ModelSpec) -> list[Any]:
     return [middleware]
 
 
+def _subagent_middleware(
+    name: str,
+    resolved_tools: list[Any],
+    fallback_mw: list[Any],
+) -> list[Any] | None:
+    """Merge audit middleware (outermost) with optional fallback middleware."""
+    middleware: list[Any] = []
+    audit_mw = build_audit_middleware(
+        mcp_tool_names=_mcp_tool_names_from_tools(resolved_tools),
+        agent=name,
+    )
+    if audit_mw is not None:
+        middleware.append(audit_mw)
+    middleware.extend(fallback_mw)
+    return middleware or None
+
+
 def _build_single_subagent(
     name: str,
     agent_cfg: dict[str, Any],
@@ -378,8 +399,9 @@ def _build_default_subagent(
         subagent_params["tools"] = resolved_tools
     if skill_paths:
         subagent_params["skills"] = skill_paths
-    if fallback_mw:
-        subagent_params["middleware"] = fallback_mw
+    middleware = _subagent_middleware(name, resolved_tools, fallback_mw)
+    if middleware:
+        subagent_params["middleware"] = middleware
 
     return SubAgent(**subagent_params)
 
@@ -441,8 +463,9 @@ def _build_compiled_subagent(
         "backend": get_configured_backend(),
     }
 
-    if fallback_mw:
-        create_kwargs["middleware"] = fallback_mw
+    middleware = _subagent_middleware(name, resolved_tools, fallback_mw)
+    if middleware:
+        create_kwargs["middleware"] = middleware
 
     compiled_graph = create_deep_agent(**create_kwargs)
 

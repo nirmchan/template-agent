@@ -121,6 +121,17 @@ async def agent(runtime: ServerRuntime) -> Any:
 
     set_mcp_auth_context(sso_token, refresh_token)
 
+    from deep_agent.src.platform.audit.config import is_audit_enabled
+    from deep_agent.src.platform.audit.context import bind_audit_context
+    from deep_agent.src.settings import settings as app_settings
+    from deep_agent.utils.pylogger import bind_request_context
+
+    user_identity = getattr(user, "identity", None) if user else None
+    org = app_settings.AI_PLATFORM_AGENT_ORG or None
+    if is_audit_enabled() and user_identity:
+        bind_audit_context(user=user_identity, org=org)
+        bind_request_context(user_id=user_identity, org=org)
+
     orchestrator_cfg = agent_config.get_orchestrator_config()
     agent_name = orchestrator_cfg.get("name", "orchestrator")
     orch_model_raw = orchestrator_cfg.get("model", "gemini-3.1-pro-preview")
@@ -129,7 +140,6 @@ async def agent(runtime: ServerRuntime) -> Any:
     tool_names = orchestrator_cfg.get("tools", [])
     mcp_server_names = orchestrator_cfg.get("mcps", [])
 
-    user_identity = getattr(user, "identity", None) if user else None
     if user_identity:
         try:
             from deep_agent.src.cache.personalization_cache import (
@@ -141,7 +151,6 @@ async def agent(runtime: ServerRuntime) -> Any:
             from deep_agent.src.personalization.repository import (
                 PersonalizationRepository,
             )
-            from deep_agent.src.settings import settings as app_settings
 
             cached = await get_personalization(user_identity)
             if cached is not None:
@@ -237,7 +246,12 @@ async def agent(runtime: ServerRuntime) -> Any:
     resolved_mw = agent_config.resolve_agent_middleware(
         model_name, middleware_overrides
     )
-    middleware = build_middleware_list(resolved_mw, model=model, backend=backend)
+    middleware = build_middleware_list(
+        resolved_mw,
+        model=model,
+        backend=backend,
+        mcp_tool_names=frozenset(t.name for t in mcp_tools),
+    )
     memory = resolve_memory_param(resolved_mw)
     skills_param = skill_paths if resolved_mw.skills_enabled else None
 

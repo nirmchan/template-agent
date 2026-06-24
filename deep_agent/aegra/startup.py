@@ -44,6 +44,7 @@ async def run_startup() -> dict[str, str]:
     results["cache"] = await _warm_caches()
     results["scheduler"] = await _start_scheduler()
     results["telemetry"] = _setup_telemetry()
+    results["audit"] = _setup_audit()
 
     _upgrade_signal_handlers()
 
@@ -146,6 +147,19 @@ def _setup_telemetry() -> str:
         return "ok"
     except Exception as exc:
         logger.warning("Telemetry setup failed: %s", exc)
+        return f"warning: {exc}"
+
+
+def _setup_audit() -> str:
+    """Report platform audit status from settings."""
+    try:
+        from deep_agent.src.settings import settings
+
+        if not settings.PLATFORM_AUDIT_ENABLED:
+            return "skipped: platform audit disabled"
+        return "ok"
+    except Exception as exc:
+        logger.warning("Audit setup failed: %s", exc)
         return f"warning: {exc}"
 
 
