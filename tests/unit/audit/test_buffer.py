@@ -2,15 +2,15 @@
 
 from unittest.mock import patch
 
-from deep_agent.src.platform.audit.buffer import drain, enqueue
+from deep_agent.src.audit.buffer import drain, enqueue
 
 
 class TestAuditBuffer:
     def test_enqueue_and_drain(self):
-        with patch("deep_agent.src.platform.audit.buffer.settings") as mock_settings:
+        with patch("deep_agent.src.audit.buffer.settings") as mock_settings:
             mock_settings.PLATFORM_AUDIT_BUFFER_MAX = 10
 
-            import deep_agent.src.platform.audit.buffer as buffer_mod
+            import deep_agent.src.audit.buffer as buffer_mod
 
             buffer_mod._queue.clear()
             buffer_mod._dropped = 0
@@ -21,10 +21,10 @@ class TestAuditBuffer:
             assert drain() == []
 
     def test_drops_when_full(self):
-        with patch("deep_agent.src.platform.audit.buffer.settings") as mock_settings:
+        with patch("deep_agent.src.audit.buffer.settings") as mock_settings:
             mock_settings.PLATFORM_AUDIT_BUFFER_MAX = 2
 
-            import deep_agent.src.platform.audit.buffer as buffer_mod
+            import deep_agent.src.audit.buffer as buffer_mod
 
             buffer_mod._queue.clear()
             buffer_mod._dropped = 0

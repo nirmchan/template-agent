@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from deep_agent.src.platform.audit.emitter import _scrub_details
+from deep_agent.src.audit.emitter import _scrub_details
 
 
 class TestScrubDetails:

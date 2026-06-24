@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from deep_agent.src.infrastructure.subagents import _subagent_middleware
-from deep_agent.src.platform.audit.middleware import AuditMiddleware
+from deep_agent.src.audit.middleware import AuditMiddleware
 
 
 class TestSubagentMiddleware:

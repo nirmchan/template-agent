@@ -26,9 +26,9 @@ from langchain.agents.middleware.types import (
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-from deep_agent.src.platform.audit.config import is_audit_enabled
-from deep_agent.src.platform.audit.emitter import emit_audit_event
-from deep_agent.src.platform.audit.events import AuditEventType
+from deep_agent.src.audit.config import is_audit_enabled
+from deep_agent.src.audit.emitter import emit_audit_event
+from deep_agent.src.audit.events import AuditEventType
 
 _MEMORY_TOOLS = frozenset({"edit_file", "write_file"})
 _SUBAGENT_TOOL = "task"

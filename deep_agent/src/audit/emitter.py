@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from deep_agent.src.platform.audit.buffer import drain, enqueue
-from deep_agent.src.platform.audit.config import is_audit_enabled
-from deep_agent.src.platform.audit.context import get_audit_context, resolve_trace_id
+from deep_agent.src.audit.buffer import drain, enqueue
+from deep_agent.src.audit.config import is_audit_enabled
+from deep_agent.src.audit.context import get_audit_context, resolve_trace_id
 from deep_agent.utils.pylogger import SERVICE_NAME, get_python_logger
 
 logger = get_python_logger()

@@ -19,7 +19,7 @@ class TestBuildMiddlewareList:
     @pytest.fixture(autouse=True)
     def _disable_audit(self):
         with patch(
-            "deep_agent.src.platform.audit.config.is_audit_enabled",
+            "deep_agent.src.audit.config.is_audit_enabled",
             return_value=False,
         ):
             yield

@@ -26,12 +26,12 @@ def build_audit_middleware(
     agent: str | None = None,
 ) -> Any | None:
     """Return AuditMiddleware when platform audit is enabled, else None."""
-    from deep_agent.src.platform.audit.config import is_audit_enabled
+    from deep_agent.src.audit.config import is_audit_enabled
 
     if not is_audit_enabled():
         return None
 
-    from deep_agent.src.platform.audit.middleware import AuditMiddleware
+    from deep_agent.src.audit.middleware import AuditMiddleware
 
     return AuditMiddleware(
         mcp_tool_names=mcp_tool_names or frozenset(),

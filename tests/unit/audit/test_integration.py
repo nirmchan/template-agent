@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from deep_agent.src.agent.config.middleware import ResolvedMiddlewareConfig
 from deep_agent.src.infrastructure.middleware import build_middleware_list
-from deep_agent.src.platform.audit.middleware import AuditMiddleware
+from deep_agent.src.audit.middleware import AuditMiddleware
 
 
 class TestBuildMiddlewareListAudit:
@@ -13,7 +13,7 @@ class TestBuildMiddlewareListAudit:
         with (
             patch("deep_agent.src.infrastructure.middleware.settings") as mock_settings,
             patch(
-                "deep_agent.src.platform.audit.config.is_audit_enabled",
+                "deep_agent.src.audit.config.is_audit_enabled",
                 return_value=True,
             ),
         ):
@@ -29,7 +29,7 @@ class TestBuildMiddlewareListAudit:
         with (
             patch("deep_agent.src.infrastructure.middleware.settings") as mock_settings,
             patch(
-                "deep_agent.src.platform.audit.config.is_audit_enabled",
+                "deep_agent.src.audit.config.is_audit_enabled",
                 return_value=False,
             ),
         ):
@@ -43,7 +43,7 @@ class TestBuildMiddlewareListAudit:
         with (
             patch("deep_agent.src.infrastructure.middleware.settings") as mock_settings,
             patch(
-                "deep_agent.src.platform.audit.config.is_audit_enabled",
+                "deep_agent.src.audit.config.is_audit_enabled",
                 return_value=True,
             ),
             patch(

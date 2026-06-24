@@ -121,8 +121,8 @@ async def agent(runtime: ServerRuntime) -> Any:
 
     set_mcp_auth_context(sso_token, refresh_token)
 
-    from deep_agent.src.platform.audit.config import is_audit_enabled
-    from deep_agent.src.platform.audit.context import bind_audit_context
+    from deep_agent.src.audit.config import is_audit_enabled
+    from deep_agent.src.audit.context import bind_audit_context
     from deep_agent.src.settings import settings as app_settings
     from deep_agent.utils.pylogger import bind_request_context
 
