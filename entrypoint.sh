@@ -1,35 +1,22 @@
 #!/bin/bash
 
-# Custom CA support: mount a PEM file or provide URL(s).
+# Custom CA support: mount a PEM file or provide a URL.
 #   CUSTOM_CA_PATH — path to a mounted PEM file (preferred, no network call)
-#   CUSTOM_CA_URL  — URL(s) to download PEM from (comma-separated for multiple certs)
-#                    Examples:
-#                      Single:   CUSTOM_CA_URL="https://example.com/cert.pem"
-#                      Multiple: CUSTOM_CA_URL="https://example.com/cert1.pem,https://example.com/cert2.pem"
-CA_PEMS=()
+#   CUSTOM_CA_URL  — URL to download PEM from (fallback, hits network per pod)
+CA_PEM=""
 
 if [ -n "$CUSTOM_CA_PATH" ] && [ -f "$CUSTOM_CA_PATH" ]; then
-  CA_PEMS=("$CUSTOM_CA_PATH")
+  CA_PEM="$CUSTOM_CA_PATH"
 elif [ -n "$CUSTOM_CA_URL" ]; then
-  # Split CUSTOM_CA_URL by comma and download each certificate
-  IFS=',' read -ra URLS <<< "$CUSTOM_CA_URL"
-  for i in "${!URLS[@]}"; do
-    url="${URLS[$i]}"
-    # Trim whitespace
-    url=$(echo "$url" | xargs)
-    if [ -n "$url" ]; then
-      tmp_ca="/tmp/custom-ca-$i.pem"
-      if curl -so "$tmp_ca" "$url"; then
-        CA_PEMS+=("$tmp_ca")
-        echo "INFO: Successfully fetched CA from $url" >&2
-      else
-        echo "WARN: Failed to fetch CA from $url, skipping" >&2
-      fi
-    fi
-  done
+  if curl -so /tmp/custom-ca.pem "$CUSTOM_CA_URL"; then
+    CA_PEM="/tmp/custom-ca.pem"
+    echo "INFO: Successfully fetched CA from $CUSTOM_CA_URL" >&2
+  else
+    echo "WARN: Failed to fetch CA from $CUSTOM_CA_URL, continuing with defaults" >&2
+  fi
 fi
 
-if [ ${#CA_PEMS[@]} -gt 0 ]; then
+if [ -n "$CA_PEM" ]; then
   # Use /app (user-writable) instead of /tmp to avoid permission issues with shell redirection
   BUNDLE_PATH="/app/.ca-bundle.pem"
 
@@ -44,12 +31,9 @@ if [ ${#CA_PEMS[@]} -gt 0 ]; then
     touch "$BUNDLE_PATH"
   fi
 
-  # Append all custom CA certificates to the bundle using cat (not shell redirection)
-  for ca_pem in "${CA_PEMS[@]}"; do
-    cat "$ca_pem" >> "$BUNDLE_PATH" 2>/dev/null || cat "$ca_pem" | cat >> "$BUNDLE_PATH"
-    # Clean up temporary downloads
-    [[ "$ca_pem" == /tmp/custom-ca-*.pem ]] && rm -f "$ca_pem"
-  done
+  # Append custom CA certificate to the bundle
+  cat "$CA_PEM" >> "$BUNDLE_PATH" 2>/dev/null || cat "$CA_PEM" | cat >> "$BUNDLE_PATH"
+  [ "$CA_PEM" = "/tmp/custom-ca.pem" ] && rm -f /tmp/custom-ca.pem
 
   export REQUESTS_CA_BUNDLE="$BUNDLE_PATH"
   export SSL_CERT_FILE="$BUNDLE_PATH"
@@ -57,7 +41,7 @@ if [ ${#CA_PEMS[@]} -gt 0 ]; then
   export PIP_CERT="$BUNDLE_PATH"
   export NODE_EXTRA_CA_CERTS="$BUNDLE_PATH"
 
-  echo "INFO: Custom CA bundle configured with ${#CA_PEMS[@]} certificate(s) at $BUNDLE_PATH" >&2
+  echo "INFO: Custom CA bundle configured at $BUNDLE_PATH" >&2
 fi
 
 exec "$@"
