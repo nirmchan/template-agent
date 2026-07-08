@@ -31,6 +31,9 @@ if [ -n "$CA_PEM" ]; then
     touch "$BUNDLE_PATH"
   fi
 
+  # Make bundle writable (system CA bundles are often read-only)
+  chmod u+w "$BUNDLE_PATH"
+
   # Append custom CA certificate to the bundle
   cat "$CA_PEM" >> "$BUNDLE_PATH" 2>/dev/null || cat "$CA_PEM" | cat >> "$BUNDLE_PATH"
   [ "$CA_PEM" = "/tmp/custom-ca.pem" ] && rm -f /tmp/custom-ca.pem
