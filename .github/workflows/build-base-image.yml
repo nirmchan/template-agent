@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - deep-agent
+      - pull_107
   workflow_dispatch:  # Allow manual trigger for testing
 
 permissions:
