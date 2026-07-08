@@ -30,31 +30,34 @@ elif [ -n "$CUSTOM_CA_URL" ]; then
 fi
 
 if [ ${#CA_PEMS[@]} -gt 0 ]; then
+  # Use /app (user-writable) instead of /tmp to avoid permission issues with shell redirection
+  BUNDLE_PATH="/app/.ca-bundle.pem"
+
   # Start with system CA bundle
   if command -v python3 &>/dev/null && python3 -m certifi &>/dev/null; then
-    cp "$(python3 -m certifi)" /tmp/ca-bundle.pem
+    cp "$(python3 -m certifi)" "$BUNDLE_PATH"
   elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-    cp /etc/ssl/certs/ca-certificates.crt /tmp/ca-bundle.pem
+    cp /etc/ssl/certs/ca-certificates.crt "$BUNDLE_PATH"
   elif [ -f /etc/pki/tls/certs/ca-bundle.crt ]; then
-    cp /etc/pki/tls/certs/ca-bundle.crt /tmp/ca-bundle.pem
+    cp /etc/pki/tls/certs/ca-bundle.crt "$BUNDLE_PATH"
   else
-    cp /dev/null /tmp/ca-bundle.pem
+    touch "$BUNDLE_PATH"
   fi
 
-  # Append all custom CA certificates to the bundle
+  # Append all custom CA certificates to the bundle using cat (not shell redirection)
   for ca_pem in "${CA_PEMS[@]}"; do
-    cat "$ca_pem" >> /tmp/ca-bundle.pem
+    cat "$ca_pem" >> "$BUNDLE_PATH" 2>/dev/null || cat "$ca_pem" | cat >> "$BUNDLE_PATH"
     # Clean up temporary downloads
     [[ "$ca_pem" == /tmp/custom-ca-*.pem ]] && rm -f "$ca_pem"
   done
 
-  export REQUESTS_CA_BUNDLE=/tmp/ca-bundle.pem
-  export SSL_CERT_FILE=/tmp/ca-bundle.pem
-  export CURL_CA_BUNDLE=/tmp/ca-bundle.pem
-  export PIP_CERT=/tmp/ca-bundle.pem
-  export NODE_EXTRA_CA_CERTS=/tmp/ca-bundle.pem
+  export REQUESTS_CA_BUNDLE="$BUNDLE_PATH"
+  export SSL_CERT_FILE="$BUNDLE_PATH"
+  export CURL_CA_BUNDLE="$BUNDLE_PATH"
+  export PIP_CERT="$BUNDLE_PATH"
+  export NODE_EXTRA_CA_CERTS="$BUNDLE_PATH"
 
-  echo "INFO: Custom CA bundle configured with ${#CA_PEMS[@]} certificate(s)" >&2
+  echo "INFO: Custom CA bundle configured with ${#CA_PEMS[@]} certificate(s) at $BUNDLE_PATH" >&2
 fi
 
 exec "$@"
