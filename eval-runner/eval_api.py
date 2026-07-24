@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-AGENT_URL = os.environ.get("AGENT_URL", "http://localhost:5002")
+AGENT_URL = os.environ.get("AGENT_HOST", "http://localhost:5002")
 EVAL_CASES_PATH = Path(
     os.environ.get("EVAL_CASES_PATH", "/agent-config/eval_cases.yaml")
 )

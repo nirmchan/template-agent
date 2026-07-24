@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eval-runner
+  labels:
+    app: eval-runner
+    component: eval-runner
+spec:
+  # KEDA HTTPScaledObject manages replica count (min=0, max=2).
+  # This value is the initial count before KEDA takes over.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eval-runner
+      component: eval-runner
+  template:
+    metadata:
+      labels:
+        app: eval-runner
+        component: eval-runner
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: eval-runner
+          image: eval-runner:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8099
+              name: http
+              protocol: TCP
+          env:
+            # Agent endpoint — internal cluster DNS (same service name as agent Service)
+            - name: AGENT_HOST
+              value: "http://agent:5002"
+
+            # Agent identity — override via kustomize patch per deployment
+            - name: AI_PLATFORM_AGENT_ORG
+              value: "default"
+            - name: AI_PLATFORM_AGENT_NAME
+              value: "template-agent"
+
+            # Auth
+            - name: ENABLE_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: ENABLE_AUTH
+
+            # PostgreSQL — shared with agent pod (results written here)
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: POSTGRES_PASSWORD
+
+            # LLM credentials (judge model) — shared from agent secrets
+            - name: GOOGLE_APPLICATION_CREDENTIALS_CONTENT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: GOOGLE_APPLICATION_CREDENTIALS_CONTENT
+                  optional: true
+            - name: VLLM_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: VLLM_BASE_URL
+                  optional: true
+            - name: VLLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: VLLM_API_KEY
+                  optional: true
+
+            # S3 result upload (optional — leave EVAL_S3_BUCKET empty to disable)
+            - name: EVAL_S3_BUCKET
+              value: ""
+
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8099
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8099
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8099
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"

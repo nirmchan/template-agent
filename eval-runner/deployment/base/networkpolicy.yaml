@@ -12,11 +12,19 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # Only allow traffic from the agent pod within the same namespace
+    # Allow traffic from the agent pod within the same namespace
     - from:
         - podSelector:
             matchLabels:
               app: agent
+      ports:
+        - protocol: TCP
+          port: 8099
+    # Allow traffic from the UI pod (triggers POST /evals/run)
+    - from:
+        - podSelector:
+            matchLabels:
+              component: ui
       ports:
         - protocol: TCP
           port: 8099

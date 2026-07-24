@@ -78,7 +78,7 @@ services:
     ports:
       - "8099:8099"
     environment:
-      - AGENT_URL=http://template-agent:5002
+      - AGENT_HOST=http://template-agent:5002
       - AGENT_CONFIG_DIR=/agent-config
       - AI_PLATFORM_AGENT_ORG=demo
       - AI_PLATFORM_AGENT_NAME=template-agent
