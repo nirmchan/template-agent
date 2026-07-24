@@ -1,0 +1,50 @@
+# Managed by eval sidecar — use POST /evals/cases to add cases.
+
+- conversation_group_id: bmi_calculate_tool_call
+  description: Verify orchestrator delegates to analyst and returns correct BMI with health tips
+  tag: tool_use
+  turns:
+  - turn_id: ask_bmi
+    query: "I'm 175 cm and weigh 70 kg. What is my BMI?"
+    expected_response: |
+      BMI is approximately 22.9, classified as Normal weight (18.5–24.9).
+      Includes health tips and a disclaimer about consulting a professional.
+    expected_keywords:
+      - ["22.9", "22.8", "23.0"]
+      - ["Normal"]
+    expected_tool_calls:
+      - - tool_name: calculate_bmi
+          arguments:
+            height_cm: 175
+            weight_kg: 70
+    turn_metrics:
+      - custom:answer_correctness
+      - custom:keywords_eval
+      - custom:tool_eval
+    turn_metrics_metadata:
+      custom:tool_eval:
+        ordered: false
+        full_match: false
+
+# - conversation_group_id: tool_use_6452bca93f12
+#   description: Auto-created — case_id=6452bca93f12
+#   tag: tool_use
+#   turns:
+#   - turn_id: turn_1
+#     query: What is my BMI for 175cm 70kg?
+#     expected_response: 22.9, Normal weight.
+#     turn_metrics:
+#     - custom:answer_correctness
+
+# - conversation_group_id: structured_output_904b75feb575
+#   description: Auto-created — case_id=904b75feb575
+#   tag: structured_output
+#   turns:
+#   - turn_id: turn_1
+#     query: Calculate BMI, height 100cm and weight 80kg
+#     expected_response: Overweight
+#     expected_keywords:
+#     - - Overweight
+#     turn_metrics:
+#     - geval:tone_safety
+#     - custom:keywords_eval

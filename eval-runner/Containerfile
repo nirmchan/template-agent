@@ -1,0 +1,23 @@
+FROM registry.access.redhat.com/ubi9/python-312:latest
+
+WORKDIR /app
+
+# Isolated venv — no pyyaml / langchain-google-genai conflict with template-agent.
+RUN pip install --no-cache-dir \
+    "lightspeed-evaluation @ git+https://github.com/lightspeed-core/lightspeed-evaluation.git@v0.7.0" \
+    fastapi \
+    "uvicorn[standard]" \
+    boto3 \
+    httpx \
+    pyyaml \
+    psycopg2-binary
+
+COPY eval_api.py run_eval.py eval_cases.py eval_postgres.py ./
+
+# /evals  — mounted from PVC: system.yaml + eval_*.yaml (agent-engine writes these)
+# /eval_output — mount a volume here for result persistence
+VOLUME ["/evals", "/eval_output"]
+
+EXPOSE 8099
+
+ENTRYPOINT ["uvicorn", "eval_api:app", "--host", "0.0.0.0", "--port", "8099"]

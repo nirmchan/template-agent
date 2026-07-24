@@ -1,0 +1,825 @@
+#!/usr/bin/env python3
+r"""Standalone live-eval runner for lightspeed-evaluation.
+
+Calls a running agent for each query in eval_data.yaml via the LangGraph API,
+collects real response + tool calls + contexts from the SSE stream, writes a
+populated YAML, then invokes lightspeed-eval to score and produce a report.
+
+Usage:
+    python run_eval.py                                         # local agent
+    python run_eval.py --agent-url https://agent.example.com  # deployed agent
+    python run_eval.py \\
+        --agent-url http://localhost:5002 \\
+        --eval-data custom_data.yaml \\
+        --output-dir ./results
+
+Requires:
+    GOOGLE_API_KEY env var
+    pip install "lightspeed-evaluation @ git+https://github.com/lightspeed-core/lightspeed-evaluation.git@v0.7.0"
+
+Agent API (standard LangGraph Platform — no custom endpoints needed):
+    POST /threads                              → create a thread
+    POST /threads/{thread_id}/runs/stream      → stream a run / resume interrupt
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+import httpx
+import yaml
+
+SCRIPT_DIR = Path(__file__).parent
+DEFAULT_SYSTEM = SCRIPT_DIR / "system.yaml"
+DEFAULT_EVAL_DATA = SCRIPT_DIR / "eval_data.yaml"
+DEFAULT_OUTPUT_DIR = Path("eval_output_live")
+DEFAULT_AGENT_URL = "http://localhost:5002"
+AGENT_SSL_VERIFY = os.environ.get("AGENT_SSL_VERIFY", "true").lower() not in (
+    "false",
+    "0",
+)
+ASSISTANT_ID = "agent"
+MAX_HITL_APPROVALS = 10  # safety cap on auto-approvals per turn
+
+
+# ── SSE parsing ──────────────────────────────────────────────────────────────
+
+
+def _parse_sse_stream(lines: list[str]) -> list[tuple[str, Any]]:
+    """Parse LangGraph SSE stream lines into (event_type, data) pairs.
+
+    LangGraph SSE format per event block:
+        event: <type>
+        data: <json>
+        id: <id>
+        <blank line>
+    """
+    events: list[tuple[str, Any]] = []
+    current_event = "message"
+    current_data: str | None = None
+
+    for line in lines:
+        line = line.rstrip()
+        if line.startswith("event:"):
+            current_event = line[len("event:") :].strip()
+        elif line.startswith("data:"):
+            current_data = line[len("data:") :].strip()
+        elif line == "" and current_data is not None:
+            try:
+                events.append((current_event, json.loads(current_data)))
+            except json.JSONDecodeError:
+                pass
+            current_data = None
+            current_event = "message"
+
+    if current_data is not None:
+        try:
+            events.append((current_event, json.loads(current_data)))
+        except json.JSONDecodeError:
+            pass
+
+    return events
+
+
+def _extract_text(content: Any) -> str:
+    """Extract plain text from LangChain message content (str or block list)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            (
+                b.get("text", "")
+                if isinstance(b, dict) and b.get("type") == "text"
+                else b
+            )
+            for b in content
+            if isinstance(b, (str, dict))
+        ]
+        return "\n".join(str(p) for p in parts if p)
+    return ""
+
+
+def _resolve_tool_name(tc: dict[str, Any]) -> str:
+    """Unwrap 'task' → actual subagent name for readability."""
+    name = tc.get("name", "")
+    if name == "task":
+        return tc.get("args", {}).get("subagent_type", "task")  # type: ignore[no-any-return]
+    return name  # type: ignore[no-any-return]
+
+
+def _unwrap_update_data(data: Any) -> dict[str, Any]:
+    """Unwrap [namespace, update_dict] from stream_subgraphs=True, or return as-is."""
+    if isinstance(data, list) and len(data) == 2 and isinstance(data[1], dict):
+        return data[1]
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _has_interrupt(events: list[tuple[str, Any]]) -> bool:
+    """Return True if the stream contains a HITL interrupt event."""
+    for event_type, data in events:
+        if event_type == "updates":
+            update = _unwrap_update_data(data)
+            if "__interrupt__" in update:
+                return True
+    return False
+
+
+def _count_interrupted_tool_calls(events: list[tuple[str, Any]]) -> int:
+    """Return number of tool calls pending approval in the interrupt payload."""
+    for event_type, data in events:
+        if event_type == "updates":
+            update = _unwrap_update_data(data)
+            interrupt_list = update.get("__interrupt__", [])
+            if interrupt_list:
+                value = interrupt_list[0].get("value", {})
+                return len(value.get("action_requests", [1]))
+    return 1
+
+
+def _extract_interrupt_response(events: list[tuple[str, Any]]) -> str:
+    """Extract the HITL interrupt description as the pre-approval response.
+
+    The __interrupt__ payload has action_requests with:
+      - description: already-formatted human-readable approval request
+      - name / args: tool name and arguments pending approval
+    We use description if present, otherwise build from name + args.
+    """
+    for event_type, data in events:
+        if event_type != "updates":
+            continue
+        update = _unwrap_update_data(data)
+        interrupt_list = update.get("__interrupt__", [])
+        if not interrupt_list:
+            continue
+        value = interrupt_list[0].get("value", {})
+        requests = value.get("action_requests", [])
+        if not requests:
+            continue
+        parts = []
+        for req in requests:
+            if req.get("description"):
+                parts.append(req["description"])
+            else:
+                name = req.get("name", "unknown_tool")
+                args = req.get("args", {})
+                parts.append(
+                    f"Tool execution requires approval\n\nTool: {name}\nArgs: {args}"
+                )
+        return "\n\n".join(parts)
+    return ""
+
+
+# ── Agent interaction ────────────────────────────────────────────────────────
+
+
+def _headers(auth_token: str | None) -> dict[str, str]:
+    h = {"Content-Type": "application/json"}
+    if auth_token:
+        h["Authorization"] = f"Bearer {auth_token}"
+    return h
+
+
+def _create_thread(agent_url: str, auth_token: str | None, timeout: int) -> str:
+    url = f"{agent_url.rstrip('/')}/threads"
+    with httpx.Client(timeout=timeout) as c:
+        resp = c.post(url, json={}, headers=_headers(auth_token))
+        resp.raise_for_status()
+        return resp.json()["thread_id"]  # type: ignore[no-any-return]
+
+
+def _stream_one_request(
+    agent_url: str,
+    thread_id: str,
+    body: dict[str, Any],
+    auth_token: str | None,
+    timeout: int,
+) -> tuple[list[tuple[str, Any]], bool]:
+    """Execute one streaming run request and return (events, interrupted).
+
+    `interrupted` is True when the stream ended with a HITL __interrupt__ node.
+    """
+    url = f"{agent_url.rstrip('/')}/threads/{thread_id}/runs/stream"
+    raw: list[str] = []
+    with httpx.Client(timeout=timeout) as c:
+        with c.stream("POST", url, json=body, headers=_headers(auth_token)) as resp:
+            resp.raise_for_status()
+            try:
+                for line in resp.iter_lines():
+                    raw.append(line)
+            except Exception:
+                # Partial read (e.g. peer closed connection mid-stream).
+                # Use whatever lines arrived — HITL interrupts are emitted
+                # early so they're usually already in `raw`.
+                pass
+
+    events = _parse_sse_stream(raw)
+    return events, _has_interrupt(events)
+
+
+def _extract_node_updates(data: Any) -> list[dict[str, Any]]:
+    """Return a flat list of node-update dicts from a LangGraph updates event.
+
+    Handles two formats emitted by the LangGraph Platform:
+      - Top-level graph:  {"node_name": {messages: [...]}, ...}
+      - Subgraph (stream_subgraphs=True): [["ns1", "ns2", ...], {"node_name": {...}}]
+        The first element is the namespace tuple; the second is the actual update dict.
+    """
+    # Subgraph format: [namespace_list, update_dict]
+    if isinstance(data, list) and len(data) == 2 and isinstance(data[1], dict):
+        return list(data[1].values())
+    # Top-level format: {node_name: update_dict, ...}
+    if isinstance(data, dict):
+        return list(data.values())
+    return []
+
+
+_INTERNAL_TOOLS = frozenset({"write_todos", "task"})
+
+
+def _collect_from_events(
+    events: list[tuple[str, Any]],
+) -> tuple[list[str], list[dict[str, Any]], list[str]]:
+    """Extract (ai_text_blocks, tool_calls, tool_result_texts) from a batch of events.
+
+    Uses two complementary event sources:
+    - "updates" events  → final AI response text and tool-result contexts
+    - "events" events   → on_tool_start captures every MCP tool call at any subgraph
+                          depth (e.g. calculate_bmi_value inside the analyst subagent)
+    Internal housekeeping tools (write_todos, task) are excluded from tool_calls.
+    """
+    ai_texts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    contexts: list[str] = []
+    seen_tool_runs: set[str] = set()  # deduplicate by run_id
+
+    for event_type, raw_data in events:
+        # When stream_mode is a list, LangGraph wraps data as ["mode", payload]
+        data = (
+            raw_data[1]
+            if (isinstance(raw_data, list) and len(raw_data) == 2)
+            else raw_data
+        )
+
+        # ── on_tool_start: captures every MCP tool call at any depth ──────────
+        if event_type == "events" and isinstance(data, dict):
+            if data.get("event") == "on_tool_start":
+                name = data.get("name", "")
+                run_id = data.get("run_id", "")
+                if name in _INTERNAL_TOOLS or (run_id and run_id in seen_tool_runs):
+                    continue
+                if run_id:
+                    seen_tool_runs.add(run_id)
+                args = data.get("data", {}).get("input", {})
+                if isinstance(args, dict):
+                    tool_calls.append({"tool_name": name, "arguments": args})
+            continue
+
+        # ── updates: AI response text, tool calls, tool-result contexts ─────
+        if event_type != "updates":
+            continue
+        for update in _extract_node_updates(data):  # data already unwrapped above
+            if not isinstance(update, dict):
+                continue  # type: ignore[unreachable]
+            for msg in update.get("messages", []):
+                if not isinstance(msg, dict):
+                    continue
+                msg_type = msg.get("type", "")
+                if msg_type == "ai":
+                    text = _extract_text(msg.get("content", ""))
+                    if text:
+                        ai_texts.append(text)
+                    for tc in msg.get("tool_calls", []):
+                        resolved = _resolve_tool_name(tc)
+                        if resolved not in _INTERNAL_TOOLS:
+                            tool_calls.append(
+                                {
+                                    "tool_name": resolved,
+                                    "arguments": tc.get("args", {}),
+                                }
+                            )
+                elif msg_type == "tool":
+                    content = _extract_text(msg.get("content", ""))
+                    if content:
+                        contexts.append(content)
+
+    return ai_texts, tool_calls, contexts
+
+
+def _get_thread_tool_calls(
+    agent_url: str,
+    thread_id: str,
+    auth_token: str | None,
+    timeout: int,
+) -> list[dict[str, Any]]:
+    """Fetch orchestrator-level tool calls from thread history.
+
+    The LangGraph Platform only exposes the root graph's checkpoints — subagent
+    executions (analyst, publisher) run as independent tasks whose internal tool
+    calls (calculate_bmi_value, send_email) are not stored in the parent thread.
+
+    What IS visible and useful for tool_eval:
+      - task(subagent_type=analyst)  → resolved to "analyst"  by _resolve_tool_name
+      - task(subagent_type=publisher) → resolved to "publisher"
+      - validate_email (called directly by the orchestrator)
+    """
+    url = f"{agent_url.rstrip('/')}/threads/{thread_id}/history"
+    tool_calls: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    try:
+        with httpx.Client(timeout=timeout) as c:
+            resp = c.post(url, json={"limit": 200}, headers=_headers(auth_token))
+            resp.raise_for_status()
+            checkpoints = resp.json()
+        for checkpoint in checkpoints:
+            messages = checkpoint.get("values", {}).get("messages", [])
+            for msg in messages:
+                if not isinstance(msg, dict) or msg.get("type") != "ai":
+                    continue
+                for tc in msg.get("tool_calls", []):
+                    name = tc.get("name", "")
+                    tc_id = tc.get("id", "")
+                    if not name:
+                        continue
+                    if tc_id and tc_id in seen:
+                        continue
+                    if tc_id:
+                        seen.add(tc_id)
+                    resolved = _resolve_tool_name(tc)
+                    if resolved in _INTERNAL_TOOLS:
+                        continue
+                    tool_calls.append(
+                        {
+                            "tool_name": resolved,
+                            "arguments": tc.get("args", {}),
+                        }
+                    )
+    except Exception as exc:
+        print(
+            f"  WARNING: could not fetch thread history for tool calls: {exc}",
+            file=sys.stderr,
+        )
+    return tool_calls
+
+
+def _first_nonempty(texts: list[str]) -> str:
+    for t in texts:
+        if t.strip():
+            return t
+    return ""
+
+
+def _last_nonempty(texts: list[str]) -> str:
+    for t in reversed(texts):
+        if t.strip():
+            return t
+    return ""
+
+
+def _call_agent(
+    agent_url: str,
+    query: str,
+    thread_id: str,
+    auth_token: str | None,
+    timeout: int,
+) -> dict[str, Any]:
+    """Run one conversation turn and collect response/tool_calls/contexts.
+
+    Always auto-approves HITL interrupts so the run completes end-to-end.
+
+    Returns both the pre-approval response (what the agent said when it paused
+    to ask for human approval) and the final post-approval response, so callers
+    can choose which one to score depending on what they are testing.
+    """
+    all_ai_texts: list[str] = []
+    all_tool_calls: list[dict[str, Any]] = []
+    all_contexts: list[str] = []
+    pre_approval_response: str = ""
+    was_interrupted: bool = False
+
+    # Initial run
+    body: dict[str, Any] = {
+        "assistant_id": ASSISTANT_ID,
+        "input": {"messages": [{"role": "human", "content": query}]},
+        "stream_mode": "updates",
+        "stream_subgraphs": True,
+    }
+    events, interrupted = _stream_one_request(
+        agent_url, thread_id, body, auth_token, timeout
+    )
+    ai_texts, tcs, ctxs = _collect_from_events(events)
+    all_ai_texts.extend(ai_texts)
+    all_tool_calls.extend(tcs)
+    all_contexts.extend(ctxs)
+
+    if interrupted:
+        was_interrupted = True
+        # Prefer any text the agent emitted before pausing; fall back to the
+        # interrupt payload (tool name + args) which is what actually triggered
+        # the approval gate — this gives intent_eval something to score.
+        pre_approval_response = _last_nonempty(ai_texts) or _extract_interrupt_response(
+            events
+        )
+
+    # Auto-approve HITL interrupts until the run completes.
+    approvals = 0
+    while interrupted and approvals < MAX_HITL_APPROVALS:
+        n_decisions = _count_interrupted_tool_calls(events)
+        approvals += 1
+        resume_body: dict[str, Any] = {
+            "assistant_id": ASSISTANT_ID,
+            "command": {"resume": {"decisions": [{"type": "approve"}] * n_decisions}},
+            "stream_mode": "updates",
+        }
+        events, interrupted = _stream_one_request(
+            agent_url, thread_id, resume_body, auth_token, timeout
+        )
+        ai_texts, tcs, ctxs = _collect_from_events(events)
+        all_ai_texts.extend(ai_texts)
+        all_tool_calls.extend(tcs)
+        all_contexts.extend(ctxs)
+
+    return {
+        "response": _last_nonempty(all_ai_texts),  # final post-approval response
+        "pre_approval_response": pre_approval_response,  # what agent said when it paused
+        "was_interrupted": was_interrupted,
+        "tool_calls_made": all_tool_calls,
+        "contexts": all_contexts,
+    }
+
+
+# ── Dataset population ───────────────────────────────────────────────────────
+
+_AGENT_ERROR_RESPONSE = "[agent error: no response collected]"
+
+
+def _fetch_subagent_tool_calls(
+    agent_url: str,
+    thread_id: str,
+    auth_token: str | None,
+    timeout: int,
+) -> list[dict[str, Any]]:
+    """Fetch subagent tool calls (calculate_bmi, send_email, etc.) from the agent.
+
+    Calls GET /v1/eval/thread-tool-calls/{thread_id} which reads directly from
+    Postgres checkpoint_blobs across all subagent namespaces — bypassing the
+    LangGraph HTTP API limitation that only exposes subgraph state during interrupts.
+    """
+    url = f"{agent_url.rstrip('/')}/v1/eval/thread-tool-calls/{thread_id}"
+    try:
+        with httpx.Client(timeout=timeout, verify=AGENT_SSL_VERIFY) as c:
+            resp = c.get(url, headers=_headers(auth_token))
+            resp.raise_for_status()
+            return resp.json().get("tool_calls", [])  # type: ignore[no-any-return]
+    except Exception as exc:
+        print(
+            f"  WARNING: could not fetch subagent tool calls: {exc}",
+            file=sys.stderr,
+        )
+        return []
+
+
+def _populate_group(
+    group: dict[str, Any],
+    agent_url: str,
+    auth_token: str | None,
+    timeout: int,
+) -> dict[str, Any]:
+    """Run all turns in one conversation group and return the populated group."""
+    group_id = group.get("conversation_group_id", "unknown")
+    print(f"\n[eval] {group_id}", flush=True)
+
+    try:
+        thread_id = _create_thread(agent_url, auth_token, timeout)
+    except Exception as exc:
+        print(f"  ERROR creating thread for {group_id}: {exc}", file=sys.stderr)
+        for turn in group.get("turns", []):
+            turn["response"] = _AGENT_ERROR_RESPONSE
+        return group
+
+    for turn in group.get("turns", []):
+        turn_id = turn.get("turn_id", "?")
+        query = turn["query"]
+        print(f"  [{group_id}] turn={turn_id}  query={query[:70]}…", flush=True)
+
+        try:
+            result = _call_agent(agent_url, query, thread_id, auth_token, timeout)
+        except Exception as exc:
+            print(f"  [{group_id}] ERROR: {exc}", file=sys.stderr)
+            result = {
+                "response": _AGENT_ERROR_RESPONSE,
+                "tool_calls_made": [],
+                "contexts": [],
+            }
+
+        # For HITL turns, score the pre-approval response (what the agent said
+        # when it paused) rather than the final post-approval response.
+        is_hitl_turn = turn.pop("hitl", False)
+        if is_hitl_turn and result.get("was_interrupted"):
+            scored_response = (
+                result.get("pre_approval_response") or _AGENT_ERROR_RESPONSE
+            )
+            hint = "(pre-approval)"
+        else:
+            scored_response = result["response"] or _AGENT_ERROR_RESPONSE
+            hint = "(post-approval)" if result.get("was_interrupted") else ""
+
+        turn["response"] = scored_response
+
+        # Merge orchestrator + subagent tool calls (subagent fetch only for tool_use evals)
+        all_tool_calls = list(result["tool_calls_made"])
+        if group.get("tag") == "tool_use":
+            subagent_tcs = _fetch_subagent_tool_calls(
+                agent_url, thread_id, auth_token, timeout
+            )
+            all_tool_calls.extend(subagent_tcs)
+
+        if all_tool_calls:
+            # Each tool call in its own sequence so partial matching works correctly.
+            # [[tc1], [tc2], ...] lets tool_eval find a single expected tool among many.
+            turn["tool_calls"] = [[tc] for tc in all_tool_calls]
+        if result["contexts"]:
+            turn["contexts"] = result["contexts"]
+
+        preview = scored_response[:90].replace("\n", " ")
+        print(f"  [{group_id}] → {hint} {preview}…", flush=True)
+
+    return group
+
+
+def _populate_dataset(
+    eval_data: list[dict[str, Any]],
+    agent_url: str,
+    auth_token: str | None,
+    timeout: int,
+    max_workers: int = 1,
+) -> list[dict[str, Any]]:
+    """Run conversation groups in parallel and fill in response/tool/context."""
+    groups = copy.deepcopy(eval_data)
+    results: dict[int, dict[str, Any]] = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_populate_group, group, agent_url, auth_token, timeout): i
+            for i, group in enumerate(groups)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                print(f"  ERROR in group {idx}: {exc}", file=sys.stderr)
+                results[idx] = groups[idx]
+
+    return [results[i] for i in range(len(groups))]
+
+
+# ── Lightspeed invocation ────────────────────────────────────────────────────
+
+
+def _find_lightspeed_cmd() -> list[str] | None:
+    """Return the command to invoke lightspeed-eval, or None if not found."""
+    venv_bin = Path(sys.executable).parent
+    for name in ["lightspeed-eval", "lightspeed_eval"]:
+        candidate = venv_bin / name
+        if candidate.exists():
+            return [str(candidate)]
+        which = subprocess.run(["which", name], capture_output=True, text=True)
+        if which.returncode == 0:
+            return [which.stdout.strip()]
+    return None
+
+
+_GRANITE_API_BASE = (
+    "https://granite-3-1-8b-instruct--apicast-staging"
+    ".apps.int.stc.ai.prod.us-east-1.aws.paas.redhat.com:443/v1"
+)
+
+
+def _subprocess_env() -> tuple[dict[str, str], list[Path]]:
+    """Return env overrides and temp files needed by the lightspeed-eval subprocess.
+
+    - Writes GOOGLE_APPLICATION_CREDENTIALS_CONTENT to a temp file so that
+      Vertex AI / ADC works without a GOOGLE_API_KEY.
+    - Injects HOSTED_VLLM_API_BASE / HOSTED_VLLM_API_KEY for the Granite judge.
+    """
+    extra_env: dict[str, str] = {}
+    tmp_files: list[Path] = []
+
+    # Google / Vertex AI service-account credentials
+    content = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
+    if content and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        try:
+            tf = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", prefix="gcp_sa_", delete=False
+            )
+            tf.write(content)
+            tf.flush()
+            tf.close()
+            extra_env["GOOGLE_APPLICATION_CREDENTIALS"] = tf.name
+            tmp_files.append(Path(tf.name))
+            # Extract project_id so LiteLLM can route vertex_ai requests correctly
+            try:
+                sa = json.loads(content)
+                project_id = sa.get("project_id", "")
+                if project_id:
+                    extra_env.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+                    extra_env.setdefault("VERTEXAI_PROJECT", project_id)
+                    extra_env.setdefault("VERTEXAI_LOCATION", "us-central1")
+            except Exception:
+                pass
+        except Exception as exc:
+            print(
+                f"WARNING: could not write GCP credentials temp file: {exc}",
+                file=sys.stderr,
+            )
+
+    return extra_env, tmp_files
+
+
+def _run_lightspeed(
+    system_path: Path,
+    populated_yaml: Path,
+    output_dir: Path,
+    lightspeed_cmd: list[str],
+) -> int:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    full_cmd = lightspeed_cmd + [
+        "--system-config",
+        str(system_path),
+        "--eval-data",
+        str(populated_yaml),
+        "--output-dir",
+        str(output_dir),
+    ]
+    print(f"[eval] Running: {' '.join(full_cmd)}", flush=True)
+
+    extra_env, tmp_files = _subprocess_env()
+    env = {**os.environ, **extra_env} if extra_env else None
+    try:
+        return subprocess.run(full_cmd, check=False, env=env).returncode
+    finally:
+        for p in tmp_files:
+            p.unlink(missing_ok=True)
+
+
+# ── Summary ──────────────────────────────────────────────────────────────────
+
+
+def _print_summary(output_dir: Path) -> None:
+    candidates = list(output_dir.glob("*_summary.json"))
+    if not candidates:
+        print(f"\n[eval] Report written to {output_dir.resolve()}/")
+        return
+    try:
+        summary = json.loads(candidates[0].read_text())
+    except Exception:
+        print(f"\n[eval] Report written to {output_dir.resolve()}/")
+        return
+
+    print("\n" + "=" * 62)
+    print("LIGHTSPEED EVAL SUMMARY")
+    print("=" * 62)
+
+    overall = summary.get("overall", {})
+    if overall:
+        print(
+            f"Overall: {overall.get('passed', '?')}/{overall.get('total', '?')} passed"
+            f"  ({overall.get('pass_rate', 0):.0%})"
+        )
+
+    per_metric = summary.get("per_metric", {})
+    if per_metric:
+        print("\nPer-metric breakdown:")
+        for metric, stats in per_metric.items():
+            rate = stats.get("pass_rate", 0)
+            threshold = stats.get("threshold", 0)
+            mark = "✓" if isinstance(rate, (int, float)) and rate >= threshold else "✗"
+            print(
+                f"  {mark} {metric:<48}"
+                f" {stats.get('passed', '?')}/{stats.get('total', '?')}"
+                f"  ({rate:.0%})"
+            )
+
+    print("=" * 62)
+    print(f"Full report: {output_dir.resolve()}/")
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Live eval: call agent → collect data → score with Lightspeed."
+    )
+    p.add_argument(
+        "--agent-url",
+        default=os.environ.get("AGENT_URL", DEFAULT_AGENT_URL),
+        help="Agent base URL (default: $AGENT_URL or http://localhost:5002)",
+    )
+    p.add_argument(
+        "--eval-data",
+        type=Path,
+        nargs="+",
+        default=[DEFAULT_EVAL_DATA],
+        metavar="FILE",
+        help="One or more eval-data YAML files (merged in order)",
+    )
+    p.add_argument("--system", type=Path, default=DEFAULT_SYSTEM)
+    p.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    p.add_argument(
+        "--auth-token",
+        default=os.environ.get("AGENT_AUTH_TOKEN"),
+        help="Bearer token (or set AGENT_AUTH_TOKEN env var)",
+    )
+    p.add_argument(
+        "--timeout", type=int, default=120, help="Per-turn timeout in seconds"
+    )
+    return p.parse_args()
+
+
+def main() -> None:
+    """Entry point for the standalone eval runner."""
+    args = _parse_args()
+
+    for path in args.eval_data:
+        if not path.exists():
+            print(f"ERROR: eval data not found: {path}", file=sys.stderr)
+            sys.exit(1)
+    if not args.system.exists():
+        print(f"ERROR: system config not found: {args.system}", file=sys.stderr)
+        sys.exit(1)
+
+    if (
+        not os.environ.get("GOOGLE_API_KEY")
+        and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_CONTENT")
+        and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    ):
+        print(
+            "WARNING: no Google credentials found (GOOGLE_API_KEY / GOOGLE_APPLICATION_CREDENTIALS_CONTENT) — scoring may fail.",
+            file=sys.stderr,
+        )
+
+    lightspeed_cmd = _find_lightspeed_cmd()
+    if lightspeed_cmd is None:
+        print(
+            "ERROR: lightspeed-eval not found. Install it with:\n"
+            '  pip install "lightspeed-evaluation @ git+https://github.com/lightspeed-core/lightspeed-evaluation.git@v0.7.0"',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    eval_files_str = ", ".join(str(p) for p in args.eval_data)
+    print(f"[eval] Agent URL : {args.agent_url}")
+    print(f"[eval] Eval data : {eval_files_str}")
+    print(f"[eval] System    : {args.system}")
+    print(f"[eval] Output    : {args.output_dir}")
+
+    eval_data: list[dict[str, Any]] = []
+    for path in args.eval_data:
+        eval_data.extend(yaml.safe_load(path.read_text()))
+
+    print("\n[eval] Collecting live agent responses …")
+    populated = _populate_dataset(
+        eval_data,
+        agent_url=args.agent_url,
+        auth_token=args.auth_token,
+        timeout=args.timeout,
+    )
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", prefix="lightspeed_live_", delete=False
+    ) as tmp:
+        yaml.dump(populated, tmp, allow_unicode=True, default_flow_style=False)
+        tmp_path = Path(tmp.name)
+
+    try:
+        print("\n[eval] Running Lightspeed scoring …", flush=True)
+        exit_code = _run_lightspeed(
+            args.system, tmp_path, args.output_dir, lightspeed_cmd
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    _print_summary(args.output_dir)
+
+    if exit_code != 0:
+        print(f"\n[eval] FAILED — lightspeed-eval exited {exit_code}", file=sys.stderr)
+    else:
+        print("\n[eval] PASSED — all metric thresholds met.")
+
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

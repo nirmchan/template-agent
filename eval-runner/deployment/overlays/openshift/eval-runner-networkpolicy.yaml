@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: eval-runner-internal-only
+  labels:
+    app: eval-runner
+    component: eval-runner
+spec:
+  podSelector:
+    matchLabels:
+      app: eval-runner
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only allow traffic from the agent pod within the same namespace
+    - from:
+        - podSelector:
+            matchLabels:
+              app: agent
+      ports:
+        - protocol: TCP
+          port: 8099

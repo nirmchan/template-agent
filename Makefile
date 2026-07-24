@@ -1,4 +1,4 @@
-.PHONY: local dev test clean deploy deploy-headless undeploy undeploy-headless kind kind-down container container-down local-down test-triggers test-integration test-headless headless
+.PHONY: local dev test clean deploy deploy-headless undeploy undeploy-headless kind kind-down container container-down local-down test-triggers test-integration test-headless headless eval eval-venv eval_container deploy-eval
 
 # OpenShift namespace (can be overridden: make deploy openshift NAMESPACE=my-project)
 NAMESPACE ?= $(shell oc project -q 2>/dev/null)
@@ -125,6 +125,95 @@ local:
 		POSTGRES_PASSWORD=postgres \
 		REDIS_URL=redis://localhost:6379/0 \
 		.venv/bin/aegra dev --port 5002 --no-db-check
+
+eval-runner/.venv/.installed: ## Create isolated venv for eval-runner (mirrors Containerfile deps)
+	@test -d eval-runner/.venv || uv venv eval-runner/.venv --python 3.12
+	@uv pip install -q --python eval-runner/.venv/bin/python \
+		"lightspeed-evaluation @ git+https://github.com/lightspeed-core/lightspeed-evaluation.git@v0.7.0" \
+		fastapi "uvicorn[standard]" boto3 httpx pyyaml motor psycopg2-binary sqlalchemy
+	@touch eval-runner/.venv/.installed
+
+eval-venv: eval-runner/.venv/.installed ## Create isolated venv for eval-runner (mirrors Containerfile deps)
+
+eval: eval-venv ## Run the eval runner via venv — fast local dev (mirrors make local for agent)
+	@echo "Starting eval runner on http://localhost:8099"
+	@echo "Requires: make local running in another terminal"
+	@echo "Press Ctrl+C to stop"
+	@trap 'lsof -ti :8099 | xargs kill -INT 2>/dev/null || true; sleep 1; lsof -ti :8099 | xargs kill -9 2>/dev/null || true; exit 130' INT TERM; \
+	cd eval-runner && \
+	AI_PLATFORM_AGENT_ORG=demo \
+		AI_PLATFORM_AGENT_NAME=template-agent \
+		AGENT_CONFIG_DIR=../config/agent \
+		POSTGRES_HOST=localhost \
+		POSTGRES_PORT=5432 \
+		POSTGRES_DB=template_agent \
+		POSTGRES_USER=postgres \
+		POSTGRES_PASSWORD=postgres \
+		AGENT_URL=http://127.0.0.1:5002 \
+		EVAL_CASES_PATH=../config/agent/evals/lightspeed-agent/eval_cases.yaml \
+		EVAL_SYSTEM_CONFIG=../config/agent/evals/lightspeed-agent/system.yaml \
+		VLLM_BASE_URL=$${VLLM_BASE_URL} \
+		VLLM_API_KEY=$${VLLM_API_KEY} \
+		.venv/bin/uvicorn eval_api:app --port 8099
+
+eval_container: ## Build and run eval runner as container — production parity (mirrors make container for agent)
+	@echo "Building eval runner container image..."
+	podman build -t eval-runner:latest -f eval-runner/Containerfile eval-runner/
+	@echo "Starting eval runner container on http://localhost:8099"
+	@echo "Requires: make local or make container running in another terminal"
+	@echo "Press Ctrl+C to stop"
+	@trap 'podman stop eval-runner-dev 2>/dev/null || true; exit 130' INT TERM; \
+	podman run --rm \
+		--name eval-runner-dev \
+		--network=host \
+		-e AI_PLATFORM_AGENT_ORG=demo \
+		-e AI_PLATFORM_AGENT_NAME=template-agent \
+		-e AGENT_CONFIG_DIR=/agent-config \
+		-e AGENT_URL=http://127.0.0.1:5002 \
+		-e POSTGRES_HOST=localhost \
+		-e POSTGRES_PORT=5432 \
+		-e POSTGRES_DB=template_agent \
+		-e POSTGRES_USER=postgres \
+		-e POSTGRES_PASSWORD=$${POSTGRES_PASSWORD:-postgres} \
+		-e VLLM_BASE_URL=$${VLLM_BASE_URL} \
+		-e VLLM_API_KEY=$${VLLM_API_KEY} \
+		-v ./config/agent:/agent-config:ro \
+		-p 8099:8099 \
+		eval-runner:latest
+
+deploy-eval:
+	@if [ "$(filter openshift,$(MAKECMDGOALS))" != "openshift" ]; then \
+		echo "Usage: make deploy-eval openshift [NAMESPACE=<project>]"; \
+		exit 1; \
+	fi
+
+deploy-eval openshift: ## Build and deploy eval-runner image to OpenShift (requires: NAMESPACE)
+	@echo "Checking for oc CLI..."
+	@which oc > /dev/null || (echo "Error: oc CLI not found." && exit 1)
+	@if [ -z "$(NAMESPACE)" ]; then \
+		echo "Error: NAMESPACE not set. Usage: make deploy-eval openshift NAMESPACE=your-project"; \
+		exit 1; \
+	fi; \
+	echo "Using namespace: $(NAMESPACE)"; \
+	oc project $(NAMESPACE) || (echo "Error: Cannot switch to namespace '$(NAMESPACE)'" && exit 1); \
+	echo "Applying eval-runner manifests (internal-only service + network policy)..."; \
+	oc apply -f eval-runner/deployment/overlays/openshift/eval-runner-imagestream.yaml; \
+	oc apply -f eval-runner/deployment/overlays/openshift/eval-runner-buildconfig.yaml; \
+	oc apply -f eval-runner/deployment/overlays/openshift/eval-runner-service.yaml; \
+	oc apply -f eval-runner/deployment/overlays/openshift/eval-runner-networkpolicy.yaml; \
+	echo "Building eval-runner image from eval-runner/ directory..."; \
+	oc start-build eval-runner --from-dir=eval-runner/ \
+		--exclude='(^|/)\.venv(/|$$)' \
+		--exclude='(^|/)__pycache__(/|$$)' \
+		--follow || exit 1; \
+	echo ""; \
+	echo "eval-runner image built successfully."; \
+	echo "Image available as: eval-runner:latest in namespace $(NAMESPACE)"; \
+	echo ""; \
+	echo "Useful commands:"; \
+	echo "  Logs:   oc logs -l app=eval-runner --tail=100"; \
+	echo "  Status: oc get pods -l app=eval-runner"
+
 
 local-down:
 	@export PODMAN_COMPOSE_SILENT=true && podman-compose -f compose.yaml stop pgvector redis
