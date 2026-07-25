@@ -12,6 +12,7 @@ and checkpointer all work correctly without side effects on other requests.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -19,11 +20,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 _AGENT_ORG = os.environ.get("AI_PLATFORM_AGENT_ORG", "default")
 _AGENT_NAME = os.environ.get("AI_PLATFORM_AGENT_NAME", "agent")
+_EVAL_RUNNER_URL = os.environ.get("EVAL_RUNNER_URL", "")
 
 
 _HASH_EXTENSIONS = {".md", ".yaml", ".json"}
@@ -512,9 +514,52 @@ def _get_config_hash() -> str:
     return _compute_config_hash()
 
 
+async def _fire_eval_run(config_hash: str, auth_token: str = "") -> None:
+    """Fire-and-forget call to eval runner. Errors are logged, never raised."""
+    eval_runner_url = os.environ.get("EVAL_RUNNER_URL", _EVAL_RUNNER_URL)
+    if not eval_runner_url:
+        log.warning("EVAL_RUNNER_URL not set — eval pod not started")
+        return
+    try:
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if auth_token:
+            headers["Authorization"] = (
+                auth_token
+                if auth_token.startswith("Bearer ")
+                else f"Bearer {auth_token}"
+            )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{eval_runner_url}/evals/run",
+                json={
+                    "config_hash": config_hash,
+                    "org": _AGENT_ORG,
+                    "name": _AGENT_NAME,
+                },
+                headers=headers,
+            )
+            log.info("eval_runner_called status=%s", resp.status_code)
+    except Exception as exc:
+        log.warning("eval_runner_call_failed: %s", exc)
+
+
 @eval_mgmt_router.post("/trigger")
-async def trigger_eval() -> dict[str, Any]:
+async def trigger_eval(request: Request) -> dict[str, Any]:
     """Cache-first eval trigger. Returns cached result or sets in_progress."""
+    from pathlib import Path as _Path
+
+    from fastapi import HTTPException
+
+    # Verify eval dataset exists before creating an in_progress entry —
+    # avoids a stuck row when the eval runner would reject with 400.
+    _agent_config_dir = os.environ.get("CONFIG_PATH", "config/agent")
+    _eval_cases = _Path(f"{_agent_config_dir}/evals/lightspeed-agent/eval_cases.yaml")
+    if not _eval_cases.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="No eval dataset found. Add eval cases before running evaluation.",
+        )
+
     config_hash = _get_config_hash()
 
     await _ensure_evals_table_once()
@@ -534,8 +579,13 @@ async def trigger_eval() -> dict[str, Any]:
     if not is_new:
         return {"eval_status": "in_progress", "message": "evaluation already running"}
 
+    if is_new:
+        auth_token = request.headers.get("authorization", "")
+        asyncio.create_task(_fire_eval_run(config_hash, auth_token))
+
     return {
         "eval_status": "in_progress",
+        "queued": True,  # UI should call eval pod only when queued=True
         "config_hash": config_hash,
         "org": _AGENT_ORG,
         "name": _AGENT_NAME,
@@ -543,16 +593,33 @@ async def trigger_eval() -> dict[str, Any]:
 
 
 @eval_mgmt_router.post("/force-trigger")
-async def force_trigger_eval() -> dict[str, Any]:
+async def force_trigger_eval(request: Request) -> dict[str, Any]:
     """Force a fresh eval run, bypassing cache."""
+    from pathlib import Path as _Path
+
+    from fastapi import HTTPException
+
+    _agent_config_dir = os.environ.get("CONFIG_PATH", "config/agent")
+    _eval_cases = _Path(f"{_agent_config_dir}/evals/lightspeed-agent/eval_cases.yaml")
+    if not _eval_cases.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="No eval dataset found. Add eval cases before running evaluation.",
+        )
+
     config_hash = _get_config_hash()
 
     record, is_new = await _atomic_set_in_progress(config_hash, force=True)
     if not is_new:
         return {"eval_status": "in_progress", "message": "evaluation already running"}
 
+    if is_new:
+        auth_token = request.headers.get("authorization", "")
+        asyncio.create_task(_fire_eval_run(config_hash, auth_token))
+
     return {
         "eval_status": "in_progress",
+        "queued": True,  # UI should call eval pod only when queued=True
         "config_hash": config_hash,
         "org": _AGENT_ORG,
         "name": _AGENT_NAME,

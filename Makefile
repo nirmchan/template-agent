@@ -1,4 +1,4 @@
-.PHONY: local dev test clean deploy deploy-headless undeploy undeploy-headless kind kind-down container container-down local-down test-triggers test-integration test-headless headless eval eval-venv eval_container deploy-eval
+.PHONY: local dev test clean deploy deploy-headless undeploy undeploy-headless kind kind-down container container-down local-down test-triggers test-integration test-headless headless eval eval-venv eval_container deploy-eval openshift
 
 # OpenShift namespace (can be overridden: make deploy openshift NAMESPACE=my-project)
 NAMESPACE ?= $(shell oc project -q 2>/dev/null)
@@ -124,6 +124,7 @@ local:
 		POSTGRES_USER=postgres \
 		POSTGRES_PASSWORD=postgres \
 		REDIS_URL=redis://localhost:6379/0 \
+		EVAL_RUNNER_URL=http://localhost:8099 \
 		.venv/bin/aegra dev --port 5002 --no-db-check
 
 eval-runner/.venv/.installed: ## Create isolated venv for eval-runner (mirrors Containerfile deps)
@@ -140,6 +141,7 @@ eval: eval-venv ## Run the eval runner via venv — fast local dev (mirrors make
 	@echo "Requires: make local running in another terminal"
 	@echo "Press Ctrl+C to stop"
 	@trap 'lsof -ti :8099 | xargs kill -INT 2>/dev/null || true; sleep 1; lsof -ti :8099 | xargs kill -9 2>/dev/null || true; exit 130' INT TERM; \
+	set -a; [ -f .env ] && . ./.env 2>/dev/null; set +a; \
 	cd eval-runner && \
 	AI_PLATFORM_AGENT_ORG=demo \
 		AI_PLATFORM_AGENT_NAME=template-agent \
@@ -149,9 +151,7 @@ eval: eval-venv ## Run the eval runner via venv — fast local dev (mirrors make
 		POSTGRES_DB=template_agent \
 		POSTGRES_USER=postgres \
 		POSTGRES_PASSWORD=postgres \
-		AGENT_URL=http://127.0.0.1:5002 \
-		EVAL_CASES_PATH=../config/agent/evals/lightspeed-agent/eval_cases.yaml \
-		EVAL_SYSTEM_CONFIG=../config/agent/evals/lightspeed-agent/system.yaml \
+		AGENT_HOST=http://127.0.0.1:5002 \
 		VLLM_BASE_URL=$${VLLM_BASE_URL} \
 		VLLM_API_KEY=$${VLLM_API_KEY} \
 		.venv/bin/uvicorn eval_api:app --port 8099
@@ -165,12 +165,12 @@ eval_container: ## Build and run eval runner as container — production parity 
 	@trap 'podman stop eval-runner-dev 2>/dev/null || true; exit 130' INT TERM; \
 	podman run --rm \
 		--name eval-runner-dev \
-		--network=host \
+		--add-host=host.containers.internal:host-gateway \
 		-e AI_PLATFORM_AGENT_ORG=demo \
 		-e AI_PLATFORM_AGENT_NAME=template-agent \
 		-e AGENT_CONFIG_DIR=/agent-config \
-		-e AGENT_URL=http://127.0.0.1:5002 \
-		-e POSTGRES_HOST=localhost \
+		-e AGENT_HOST=http://host.containers.internal:5002 \
+		-e POSTGRES_HOST=host.containers.internal \
 		-e POSTGRES_PORT=5432 \
 		-e POSTGRES_DB=template_agent \
 		-e POSTGRES_USER=postgres \
@@ -234,19 +234,20 @@ headless: ## Start agent in headless mode (background worker with event triggers
 
 container:
 	@test -f .env || (echo "Creating .env from .env.example..." && cp .env.example .env)
-	@echo "Starting stack: pgvector, redis, template-agent, jaeger"
-	@echo "Agent:  http://localhost:5002"
-	@echo "Jaeger: http://localhost:16686"
+	@echo "Starting stack: pgvector, redis, template-agent, eval-runner, jaeger"
+	@echo "Agent:       http://localhost:5002"
+	@echo "Eval runner: http://localhost:8099"
+	@echo "Jaeger:      http://localhost:16686"
 	@export PODMAN_COMPOSE_SILENT=true; \
-	trap 'export PODMAN_COMPOSE_SILENT=true; podman-compose -f compose.yaml --profile observability down --timeout 10 2>/dev/null || true; exit 130' INT TERM; \
+	trap 'export PODMAN_COMPOSE_SILENT=true; podman-compose -f compose.yaml --profile observability --profile eval --profile container down --timeout 10 2>/dev/null || true; exit 130' INT TERM; \
 	ENABLE_OTEL=true \
 	OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317 \
 	ENABLE_OTEL_TRACES=true \
 	OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4317 \
-	podman-compose --profile observability --no-ansi up --build --force-recreate --remove-orphans --timeout=60
+	podman-compose --profile observability --profile eval --profile container --no-ansi up --build --force-recreate --remove-orphans --timeout=60
 
 container-down:
-	@export PODMAN_COMPOSE_SILENT=true && podman-compose -f compose.yaml --profile observability down
+	@export PODMAN_COMPOSE_SILENT=true && podman-compose -f compose.yaml --profile observability --profile eval --profile container down
 
 # ---------------------------------------------------------------------------
 # Development environment targets

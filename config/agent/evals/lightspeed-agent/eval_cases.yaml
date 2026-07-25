@@ -21,6 +21,7 @@
       - custom:answer_correctness
       - custom:keywords_eval
       - custom:tool_eval
+      - ragas:faithfulness
     turn_metrics_metadata:
       custom:tool_eval:
         ordered: false

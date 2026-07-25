@@ -691,24 +691,40 @@ def _print_summary(output_dir: Path) -> None:
     print("LIGHTSPEED EVAL SUMMARY")
     print("=" * 62)
 
-    overall = summary.get("overall", {})
+    stats_block = summary.get("summary_stats", summary)
+    overall = stats_block.get("overall", {})
     if overall:
-        print(
-            f"Overall: {overall.get('passed', '?')}/{overall.get('total', '?')} passed"
-            f"  ({overall.get('pass_rate', 0):.0%})"
-        )
+        total = overall.get("TOTAL", overall.get("total", "?"))
+        passed = overall.get("PASS", overall.get("passed", "?"))
+        rate = overall.get("pass_rate", 0)
+        print(f"Overall: {passed}/{total} passed  ({rate:.0f}%)")
 
-    per_metric = summary.get("per_metric", {})
+    # Build threshold lookup from per-result data
+    thresholds: dict[str, float | None] = {}
+    for r in summary.get("results", []):
+        metric = r.get("metric_identifier", "")
+        if metric and metric not in thresholds:
+            thresholds[metric] = r.get("threshold")
+
+    per_metric = stats_block.get("by_metric", summary.get("per_metric", {}))
     if per_metric:
         print("\nPer-metric breakdown:")
-        for metric, stats in per_metric.items():
-            rate = stats.get("pass_rate", 0)
-            threshold = stats.get("threshold", 0)
-            mark = "✓" if isinstance(rate, (int, float)) and rate >= threshold else "✗"
+        for metric, mstats in per_metric.items():
+            rate = mstats.get("pass_rate", 0)
+            passed = mstats.get("pass", mstats.get("passed", "?"))
+            total = (mstats.get("pass", 0) + mstats.get("fail", 0)) or mstats.get(
+                "total", "?"
+            )
+            threshold = thresholds.get(metric)
+            threshold_str = f"  threshold={threshold}" if threshold is not None else ""
+            mark = (
+                "✓"
+                if isinstance(rate, (int, float))
+                and (threshold is None or rate / 100 >= threshold)
+                else "✗"
+            )
             print(
-                f"  {mark} {metric:<48}"
-                f" {stats.get('passed', '?')}/{stats.get('total', '?')}"
-                f"  ({rate:.0%})"
+                f"  {mark} {metric:<48} {passed}/{total}  ({rate:.0f}%){threshold_str}"
             )
 
     print("=" * 62)

@@ -82,6 +82,11 @@ services:
       - AGENT_CONFIG_DIR=/agent-config
       - AI_PLATFORM_AGENT_ORG=demo
       - AI_PLATFORM_AGENT_NAME=template-agent
+      - POSTGRES_HOST=pgvector
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=template_agent
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
     env_file:
       - .env
     volumes:
@@ -113,11 +118,14 @@ services:
       - .env
     environment:
       - ENABLE_AUTH=true
+      - MONGODB_URI=
+      - EVAL_RUNNER_URL=http://template-agent-eval-runner:8099
       - POSTGRES_HOST=pgvector
       - POSTGRES_PORT=5432
       - POSTGRES_DB=template_agent
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
+      - DATABASE_URL=postgresql://postgres:postgres@pgvector:5432/template_agent
       - REDIS_URL=redis://redis:6379/0
       - REDIS_BROKER_ENABLED=true
       # Custom CA — mount a PEM at ./certs/ca.pem to trust corporate CAs
@@ -159,7 +167,7 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
     restart: unless-stopped
     networks:
-      - demo-network
+      - agent-network
 
 volumes:
   agent_pgvector_data:

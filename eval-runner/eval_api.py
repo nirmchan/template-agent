@@ -38,11 +38,19 @@ log = logging.getLogger(__name__)
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 AGENT_URL = os.environ.get("AGENT_HOST", "http://localhost:5002")
+
+# Derive eval file paths from AGENT_CONFIG_DIR so no separate env vars needed.
+# Can still be overridden explicitly via EVAL_CASES_PATH / EVAL_SYSTEM_CONFIG.
+_agent_config_dir = os.environ.get("AGENT_CONFIG_DIR", "/agent-config")
 EVAL_CASES_PATH = Path(
-    os.environ.get("EVAL_CASES_PATH", "/agent-config/eval_cases.yaml")
+    os.environ.get(
+        "EVAL_CASES_PATH", f"{_agent_config_dir}/evals/lightspeed-agent/eval_cases.yaml"
+    )
 )
 EVAL_SYSTEM_CONFIG = Path(
-    os.environ.get("EVAL_SYSTEM_CONFIG", "/agent-config/system.yaml")
+    os.environ.get(
+        "EVAL_SYSTEM_CONFIG", f"{_agent_config_dir}/evals/lightspeed-agent/system.yaml"
+    )
 )
 EVAL_OUTPUT_DIR = Path(
     os.environ.get("EVAL_OUTPUT_DIR", tempfile.gettempdir() + "/eval_output")
@@ -84,7 +92,6 @@ AGENT_CONFIG_HASH = os.environ.get("AGENT_CONFIG_HASH") or _compute_config_hash(
 )
 
 AGENT_AUTH_TOKEN = os.environ.get("AGENT_AUTH_TOKEN", "")
-ENABLE_AUTH = os.environ.get("ENABLE_AUTH", "false").lower() in ("true", "1")
 EVAL_MAX_CONCURRENCY = int(os.environ.get("EVAL_MAX_CONCURRENCY", "3"))
 EVAL_S3_BUCKET = os.environ.get("EVAL_S3_BUCKET", "")
 
@@ -104,7 +111,9 @@ _run_lock = asyncio.Lock()
 def _find_eval_files(pattern: str | None) -> list[Path]:
     """Return eval data file(s) for the given pattern from the PVC-mounted cases file."""
     if not EVAL_CASES_PATH.exists():
-        raise FileNotFoundError(f"eval_cases.yaml not found at {EVAL_CASES_PATH}")
+        raise FileNotFoundError(
+            "No eval dataset found. Add eval cases before running evaluation."
+        )
 
     if pattern is None:
         return [EVAL_CASES_PATH]
@@ -113,7 +122,10 @@ def _find_eval_files(pattern: str | None) -> list[Path]:
     cases = yaml.safe_load(EVAL_CASES_PATH.read_text()) or []
     filtered = [c for c in cases if c.get("tag") == pattern]
     if not filtered:
-        raise FileNotFoundError(f"No cases with tag '{pattern}' in {EVAL_CASES_PATH}")
+        raise FileNotFoundError(
+            f"No eval cases found for pattern '{pattern}'. "
+            "Add cases with this tag before running evaluation."
+        )
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".yaml", prefix=f"eval_{pattern}_", delete=False
     )
@@ -125,7 +137,10 @@ def _find_eval_files(pattern: str | None) -> list[Path]:
 def _get_system_yaml_content() -> str:
     """Return system.yaml content with postgres credentials filled from env vars."""
     if not EVAL_SYSTEM_CONFIG.exists():
-        raise FileNotFoundError(f"system.yaml not found at {EVAL_SYSTEM_CONFIG}")
+        raise FileNotFoundError(
+            "Eval system configuration not found. "
+            "Ensure the agent config is mounted and system.yaml is present."
+        )
 
     config = yaml.safe_load(EVAL_SYSTEM_CONFIG.read_text())
 
@@ -375,7 +390,12 @@ async def _run_eval(
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     _status.update({"state": "running", "run_id": run_id})
-    log.info("Eval run started: run_id=%s pattern=%s", run_id, pattern or "all")
+    log.info(
+        "Eval run started: run_id=%s pattern=%s auth_token_present=%s",
+        run_id,
+        pattern or "all",
+        bool(auth_token),
+    )
 
     tmp_files: list[Path] = []
     try:
@@ -437,7 +457,6 @@ async def _run_eval(
 
     _latest_result = result
     _status.update({"state": "completed", "run_id": run_id})
-    log.info("Eval complete: status=%s score=%.3f", eval_status, eval_score)
 
     # Build rich results_detail from the evaluation_results PostgreSQL table
     results_detail = dict(result)
@@ -468,6 +487,16 @@ async def _run_eval(
             }
         )
         results_detail.update(result)
+
+    # Log after DB recompute so values are accurate
+    log.info(
+        "Eval complete: status=%s score=%.3f pass=%d fail=%d error=%d",
+        eval_status,
+        eval_score,
+        total_pass,
+        total_fail,
+        total_error,
+    )
 
     # Write results to Postgres so agentpod /evals/results can serve them
     try:
@@ -504,10 +533,10 @@ class EvalRunBody(BaseModel):
 
 
 def _extract_token(request: Request) -> str:
-    """Extract user auth token from Authorization header (same pattern as agent).
+    """Extract user auth token from Authorization header to forward to the agent.
 
-    Falls back to the static AGENT_AUTH_TOKEN env var for local dev without auth.
-    Raises 401 if ENABLE_AUTH is true and no token is found.
+    The eval runner is an internal service (NetworkPolicy/ClusterIP) — no auth
+    enforcement on its own endpoints. Token is only used for agent subprocess calls.
     """
     auth_header = request.headers.get("authorization", "")
     token = (
@@ -515,10 +544,7 @@ def _extract_token(request: Request) -> str:
         if auth_header.startswith("Bearer ")
         else ""
     )
-    token = token or AGENT_AUTH_TOKEN
-    if ENABLE_AUTH and not token:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return token
+    return token or AGENT_AUTH_TOKEN
 
 
 async def _trigger(
@@ -530,6 +556,16 @@ async def _trigger(
     if _status["state"] == "running":
         raise HTTPException(
             status_code=409, detail="An eval run is already in progress"
+        )
+    if not EVAL_CASES_PATH.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="No eval dataset found. Add eval cases before running evaluation.",
+        )
+    if not EVAL_SYSTEM_CONFIG.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="Eval system configuration not found. Ensure the agent config is mounted.",
         )
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     config_hash = body.config_hash if body else None
