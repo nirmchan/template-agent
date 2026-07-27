@@ -647,17 +647,31 @@ async def eval_status() -> dict[str, Any]:
 
 
 @eval_mgmt_router.get("/results")
-async def eval_results() -> dict[str, Any]:
-    """Return the most recent completed eval report."""
+async def eval_results(request: Request) -> dict[str, Any]:
+    """Return a completed eval report.
+
+    Optional query param ``completed_at`` fetches a specific run by its
+    completion timestamp.  Without it the most recent run is returned.
+    """
     from fastapi import HTTPException
 
+    completed_at = request.query_params.get("completed_at")
     await _ensure_evals_table_once()
     async with await _pg_conn() as conn:
-        row = await conn.execute(
-            "SELECT * FROM evals WHERE org=%s AND name=%s AND eval_status='completed' "
-            "ORDER BY completed_at DESC LIMIT 1",
-            (_AGENT_ORG, _AGENT_NAME),
-        )
+        if completed_at:
+            row = await conn.execute(
+                "SELECT * FROM evals WHERE org=%s AND name=%s "
+                "AND eval_status='completed' AND completed_at=%s "
+                "LIMIT 1",
+                (_AGENT_ORG, _AGENT_NAME, completed_at),
+            )
+        else:
+            row = await conn.execute(
+                "SELECT * FROM evals WHERE org=%s AND name=%s "
+                "AND eval_status='completed' "
+                "ORDER BY completed_at DESC LIMIT 1",
+                (_AGENT_ORG, _AGENT_NAME),
+            )
         result = await row.fetchone()
         if not result:
             raise HTTPException(status_code=404, detail="no completed eval results")
