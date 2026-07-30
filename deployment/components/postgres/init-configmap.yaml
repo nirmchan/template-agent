@@ -5,6 +5,5 @@ metadata:
   labels:
     component: database
 data:
-  init-databases.sh: |
-    #!/bin/bash
-    psql -c "CREATE DATABASE mcp_server;"
+  init-databases.sql: |
+    CREATE DATABASE mcp_server;
