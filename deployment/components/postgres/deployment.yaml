@@ -18,25 +18,23 @@ spec:
     spec:
       containers:
         - name: pgvector
-          image: pgvector/pgvector:pg16
+          image: quay.io/sclorg/postgresql-16-c9s:latest
           env:
-            - name: POSTGRES_USER
+            - name: POSTGRESQL_USER
               valueFrom:
                 secretKeyRef:
                   name: agent-secrets
                   key: POSTGRES_USER
-            - name: POSTGRES_PASSWORD
+            - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: agent-secrets
                   key: POSTGRES_PASSWORD
-            - name: POSTGRES_DB
+            - name: POSTGRESQL_DATABASE
               valueFrom:
                 configMapKeyRef:
                   name: agent-config
                   key: POSTGRES_DB
-            - name: PGDATA
-              value: "/var/lib/postgresql/data/pgdata"
           ports:
             - containerPort: 5432
               name: postgres
@@ -45,8 +43,6 @@ spec:
             exec:
               command:
                 - pg_isready
-                - -U
-                - pgvector
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
@@ -55,8 +51,6 @@ spec:
             exec:
               command:
                 - pg_isready
-                - -U
-                - pgvector
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
@@ -70,12 +64,11 @@ spec:
               cpu: "500m"
           volumeMounts:
             - name: postgres-data
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/pgsql/data
             - name: postgres-init
-              mountPath: /docker-entrypoint-initdb.d
+              mountPath: /opt/app-root/src/postgresql-init
           securityContext:
             runAsNonRoot: true
-            runAsUser: 999
             allowPrivilegeEscalation: false
             capabilities:
               drop:
