@@ -119,6 +119,7 @@ class AgentConfig:
     _token_budget_config: TokenBudgetConfig
     _guardrails_config: GuardrailsConfig
     _pii_config: PIIConfig
+    _model_configs: dict[str, dict[str, Any]]
     _name: str
 
     def __new__(cls, base_dir: Path | None = None) -> "AgentConfig":
@@ -295,6 +296,7 @@ class AgentConfig:
         self._name = raw.get("name", "Agent")
         # Scan skills first, as orchestrator and subagents need them for resolution
         self._available_skills: dict[str, Path] = self._scan_available_skills()
+        self._model_configs: dict[str, dict[str, Any]] = self._load_model_configs()
         self._orchestrator: dict[str, Any] = self._load_orchestrator()
         self._subagents: dict[str, dict[str, Any]] = self._load_all_subagents()
         self._mcp_servers: dict[str, Any] = self._load_mcp_servers()
@@ -367,6 +369,42 @@ class AgentConfig:
                 f"Failed to load orchestrator config: {e}",
                 ErrorCodes.CONFIGURATION_VALIDATION_ERROR,
             )
+
+    def _load_model_configs(self) -> dict[str, dict[str, Any]]:
+        """Load model config YAML files from config/agent/models/.
+
+        Each file provides runtime LLM parameters (temperature, max_tokens,
+        provider, project, location) that the agent-engine materialized from
+        the registry's MODEL.yaml packages.
+
+        Returns:
+            Dict mapping model_id to its config dict.
+        """
+        models_dir = self._base_dir / "models"
+        if not models_dir.is_dir():
+            return {}
+
+        configs: dict[str, dict[str, Any]] = {}
+        for model_file in sorted(models_dir.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(model_file.read_text()) or {}
+                if not isinstance(data, dict):
+                    continue
+                model_id = data.get("model_id", model_file.stem)
+                configs[model_id] = data
+                logger.info(
+                    "Loaded model config: %s (provider=%s, temp=%s, max_tokens=%s)",
+                    model_id,
+                    data.get("provider", "?"),
+                    data.get("temperature", "default"),
+                    data.get("max_tokens", "default"),
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to parse model config %s: %s", model_file.name, e
+                )
+
+        return configs
 
     def _load_all_subagents(self) -> dict[str, dict[str, Any]]:
         """Load all subagent configurations at initialization.
@@ -520,6 +558,15 @@ class AgentConfig:
         """
         self._ensure_loaded()
         return self._orchestrator
+
+    def get_model_params(self, model_id: str) -> dict[str, Any]:
+        """Look up runtime LLM parameters for a model by model_id.
+
+        Returns the model config dict if a matching models/{name}.yaml
+        was materialized by agent-engine, or an empty dict if not found.
+        """
+        self._ensure_loaded()
+        return self._model_configs.get(model_id, {})
 
     def get_all_subagent_configs(self) -> dict[str, dict[str, Any]]:
         """Get all subagent configurations.
