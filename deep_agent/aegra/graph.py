@@ -90,6 +90,8 @@ def _graph_fingerprint(
     hitl_enabled: bool = False,
     hitl_mode: str = "all",
     hitl_exclude: list[str] | None = None,
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
 ) -> str:
     """Stable fingerprint for graph cache keying."""
     hitl_flag = (
@@ -97,7 +99,8 @@ def _graph_fingerprint(
         f",mode={hitl_mode}"
         f",exclude={','.join(sorted(hitl_exclude or []))}"
     )
-    raw = f"{model_name}\0{system_prompt}\0{','.join(sorted(tool_names))}\0{hitl_flag}"
+    model_flag = f"temp={temperature},max_tokens={max_tokens}"
+    raw = f"{model_name}\0{system_prompt}\0{','.join(sorted(tool_names))}\0{hitl_flag}\0{model_flag}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -278,6 +281,8 @@ async def agent(runtime: ServerRuntime) -> Any:
         hitl_enabled=hitl.enabled if hitl else False,
         hitl_mode=hitl.mode if hitl else "",
         hitl_exclude=hitl.exclude if hitl else [],
+        temperature=float(orch_temperature),
+        max_tokens=int(orch_max_tokens) if orch_max_tokens else None,
     )
     now = time.time()
     graph_ttl = float(agent_config.get_cache_config().graph.ttl)
