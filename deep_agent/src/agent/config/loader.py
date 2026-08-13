@@ -429,7 +429,7 @@ class AgentConfig:
                     data.get("temperature", "default"),
                     data.get("max_tokens", "default"),
                 )
-            except Exception as e:
+            except (yaml.YAMLError, OSError, ValueError) as e:
                 logger.warning(
                     "Failed to parse model config %s: %s", model_file.name, e
                 )
