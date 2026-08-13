@@ -396,6 +396,31 @@ class AgentConfig:
                 if not isinstance(data, dict):
                     continue
                 model_id = data.get("model_id", model_file.stem)
+
+                raw_temp = data.get("temperature")
+                if raw_temp is not None:
+                    try:
+                        data["temperature"] = float(raw_temp)
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "Invalid temperature %r in %s, using default",
+                            raw_temp,
+                            model_file.name,
+                        )
+                        data.pop("temperature")
+
+                raw_max = data.get("max_tokens")
+                if raw_max is not None:
+                    try:
+                        data["max_tokens"] = int(float(raw_max))
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "Invalid max_tokens %r in %s, using default",
+                            raw_max,
+                            model_file.name,
+                        )
+                        data.pop("max_tokens")
+
                 configs[model_id] = data
                 logger.info(
                     "Loaded model config: %s (provider=%s, temp=%s, max_tokens=%s)",
