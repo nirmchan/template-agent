@@ -27,6 +27,16 @@ class TestParseTokenScopes:
     def test_parses_list(self):
         assert parse_token_scopes({"scope": ["read", "write"]}) == ["read", "write"]
 
+    def test_splits_comma_separated_list_element(self):
+        assert parse_token_scopes(
+            {"scope": ["read,write,openid"]}
+        ) == ["read", "write", "openid"]
+
+    def test_splits_space_separated_list_element(self):
+        assert parse_token_scopes(
+            {"scope": ["read write openid"]}
+        ) == ["read", "write", "openid"]
+
     def test_returns_none_when_missing(self):
         assert parse_token_scopes({}) is None
 

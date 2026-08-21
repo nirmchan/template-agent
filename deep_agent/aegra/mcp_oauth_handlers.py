@@ -283,8 +283,24 @@ async def handle_mcp_oauth_callback(
     try:
         async with httpx.AsyncClient(verify=mcp_httpx_verify(server_cfg)) as client:
             resp = await client.post(token_endpoint, data=data, timeout=30)
-            resp.raise_for_status()
             body: dict[str, Any] = resp.json()
+            logger.warning(
+                "OAuth token exchange response for '%s': status=%d body=%s",
+                mcp_name,
+                resp.status_code,
+                {k: v for k, v in body.items() if k not in ("access_token", "refresh_token")},
+            )
+            if not resp.is_success or body.get("ok") is False:
+                error_msg = body.get("error", f"HTTP {resp.status_code}")
+                logger.error(
+                    "OAuth token exchange failed for '%s': %s",
+                    mcp_name,
+                    error_msg,
+                )
+                return HTMLResponse(
+                    _callback_html(error=f"Authentication failed: {error_msg}"),
+                    status_code=502,
+                )
     except Exception:
         logger.error("OAuth token exchange failed for '%s'", mcp_name, exc_info=True)
         return HTMLResponse(
@@ -294,6 +310,15 @@ async def handle_mcp_oauth_callback(
 
     access_token = body.get("access_token")
     if not access_token:
+        authed_user = body.get("authed_user")
+        if isinstance(authed_user, dict):
+            access_token = authed_user.get("access_token")
+    if not access_token:
+        logger.error(
+            "Token response missing access_token for '%s': keys=%s",
+            mcp_name,
+            list(body.keys()),
+        )
         return HTMLResponse(
             _callback_html(error="Token response missing access_token"),
             status_code=502,
