@@ -33,6 +33,20 @@ from deep_agent.utils.pylogger import get_python_logger
 logger = get_python_logger()
 
 _OAUTH_STATE_TTL_SECONDS = 300
+_TOKEN_KEYS = frozenset({"access_token", "refresh_token"})
+
+
+def _redact_tokens(body: dict[str, Any]) -> dict[str, Any]:
+    """Redact token values from an OAuth response body, including nested dicts."""
+    redacted: dict[str, Any] = {}
+    for k, v in body.items():
+        if k in _TOKEN_KEYS:
+            continue
+        if isinstance(v, dict):
+            redacted[k] = _redact_tokens(v)
+        else:
+            redacted[k] = v
+    return redacted
 
 
 def _callback_redirect_uri(request: Request) -> str:
@@ -288,7 +302,7 @@ async def handle_mcp_oauth_callback(
                 "OAuth token exchange response for '%s': status=%d body=%s",
                 mcp_name,
                 resp.status_code,
-                {k: v for k, v in body.items() if k not in ("access_token", "refresh_token")},
+                _redact_tokens(body),
             )
             if not resp.is_success or body.get("ok") is False:
                 error_msg = body.get("error", f"HTTP {resp.status_code}")

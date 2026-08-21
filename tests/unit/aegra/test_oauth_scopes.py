@@ -37,6 +37,16 @@ class TestParseTokenScopes:
             {"scope": ["read write openid"]}
         ) == ["read", "write", "openid"]
 
+    def test_splits_mixed_comma_space_string(self):
+        assert parse_token_scopes(
+            {"scope": "read, write openid"}
+        ) == ["read", "write", "openid"]
+
+    def test_splits_mixed_comma_space_list_element(self):
+        assert parse_token_scopes(
+            {"scope": ["read, write openid"]}
+        ) == ["read", "write", "openid"]
+
     def test_returns_none_when_missing(self):
         assert parse_token_scopes({}) is None
 

@@ -275,3 +275,27 @@ class TestCallbackHtml:
         result = _callback_html(error='<script>alert("xss")</script>')
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
+
+
+class TestRedactTokens:
+    def test_redacts_top_level_tokens(self):
+        from deep_agent.aegra.mcp_oauth_handlers import _redact_tokens
+
+        body = {"access_token": "secret", "refresh_token": "secret2", "scope": "read"}
+        assert _redact_tokens(body) == {"scope": "read"}
+
+    def test_redacts_nested_tokens(self):
+        from deep_agent.aegra.mcp_oauth_handlers import _redact_tokens
+
+        body = {
+            "ok": True,
+            "authed_user": {
+                "id": "U123",
+                "access_token": "xoxp-secret",
+                "scope": "chat:write",
+            },
+        }
+        result = _redact_tokens(body)
+        assert "access_token" not in result["authed_user"]
+        assert result["authed_user"]["id"] == "U123"
+        assert result["authed_user"]["scope"] == "chat:write"
