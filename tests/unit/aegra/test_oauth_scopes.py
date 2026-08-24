@@ -49,6 +49,12 @@ class TestParseTokenScopes:
         body = {"scope": "read write", "authed_user": {"scope": "other"}}
         assert parse_token_scopes(body) == ["read", "write"]
 
+    def test_skips_empty_list_elements(self):
+        assert parse_token_scopes({"scope": ["read", "", "write"]}) == [
+            "read",
+            "write",
+        ]
+
     def test_returns_none_when_missing(self):
         assert parse_token_scopes({}) is None
 
