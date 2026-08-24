@@ -41,6 +41,14 @@ class TestParseTokenScopes:
             "openid",
         ]
 
+    def test_falls_back_to_authed_user_scope(self):
+        body = {"authed_user": {"scope": "chat:write,channels:history"}}
+        assert parse_token_scopes(body) == ["chat:write", "channels:history"]
+
+    def test_prefers_top_level_scope_over_authed_user(self):
+        body = {"scope": "read write", "authed_user": {"scope": "other"}}
+        assert parse_token_scopes(body) == ["read", "write"]
+
     def test_returns_none_when_missing(self):
         assert parse_token_scopes({}) is None
 
