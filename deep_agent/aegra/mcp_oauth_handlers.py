@@ -33,20 +33,6 @@ from deep_agent.utils.pylogger import get_python_logger
 logger = get_python_logger()
 
 _OAUTH_STATE_TTL_SECONDS = 300
-_TOKEN_KEYS = frozenset({"access_token", "refresh_token"})
-
-
-def _redact_tokens(body: dict[str, Any]) -> dict[str, Any]:
-    """Redact token values from an OAuth response body, including nested dicts."""
-    redacted: dict[str, Any] = {}
-    for k, v in body.items():
-        if k in _TOKEN_KEYS:
-            continue
-        if isinstance(v, dict):
-            redacted[k] = _redact_tokens(v)
-        else:
-            redacted[k] = v
-    return redacted
 
 
 def _callback_redirect_uri(request: Request) -> str:
@@ -297,15 +283,10 @@ async def handle_mcp_oauth_callback(
     try:
         async with httpx.AsyncClient(verify=mcp_httpx_verify(server_cfg)) as client:
             resp = await client.post(token_endpoint, data=data, timeout=30)
+            resp.raise_for_status()
             body: dict[str, Any] = resp.json()
-            logger.warning(
-                "OAuth token exchange response for '%s': status=%d body=%s",
-                mcp_name,
-                resp.status_code,
-                _redact_tokens(body),
-            )
-            if not resp.is_success or body.get("ok") is False:
-                error_msg = body.get("error", f"HTTP {resp.status_code}")
+            if body.get("ok") is False:
+                error_msg = body.get("error", "unknown error")
                 logger.error(
                     "OAuth token exchange failed for '%s': %s",
                     mcp_name,

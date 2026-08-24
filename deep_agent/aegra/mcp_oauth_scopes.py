@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from deep_agent.utils.pylogger import get_python_logger
@@ -32,13 +31,16 @@ def parse_token_scopes(body: dict[str, Any]) -> list[str] | None:
         if isinstance(authed_user, dict):
             scope_raw = authed_user.get("scope")
     if isinstance(scope_raw, str) and scope_raw:
-        return [s for s in re.split(r"[,\s]+", scope_raw.strip()) if s]
+        sep = "," if "," in scope_raw else " "
+        return [s.strip() for s in scope_raw.split(sep) if s.strip()]
     if isinstance(scope_raw, list):
         scopes: list[str] = []
         for s in scope_raw:
             raw = str(s).strip()
-            if raw:
-                scopes.extend(p for p in re.split(r"[,\s]+", raw) if p)
+            if not raw:
+                continue
+            sep = "," if "," in raw else " "
+            scopes.extend(part.strip() for part in raw.split(sep) if part.strip())
         return scopes or None
     return None
 
