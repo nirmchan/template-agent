@@ -181,6 +181,10 @@ def build_middleware_list(
     if audit_mw is not None:
         middlewares.append(audit_mw)
 
+    from deep_agent.src.observability.otel_middleware import OtelMiddleware
+
+    middlewares.append(OtelMiddleware())
+
     opa_mw = build_opa_middleware()
     if opa_mw is not None:
         middlewares.append(opa_mw)

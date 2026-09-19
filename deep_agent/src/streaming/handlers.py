@@ -5,11 +5,13 @@ that process LangGraph streaming events and convert them into API-friendly forma
 Handles both token-level and update-level streaming modes.
 """
 
+import time
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langgraph.types import Overwrite
 
+from deep_agent.aegra.otel import record_first_token
 from deep_agent.src.adapters.langchain import (
     convert_message_content_to_string,
     langchain_to_chat_message,
@@ -168,6 +170,8 @@ class TokenEventHandler:
             tracker: Tool call tracker for associating tokens with tools.
         """
         self.tracker = tracker
+        self._first_token_recorded = False
+        self._stream_start_mono = time.monotonic()
 
     def handle(self, event: tuple, ctx: StreamContext) -> list[dict[str, Any]]:
         """Process token streaming events.
@@ -192,6 +196,10 @@ class TokenEventHandler:
         content = remove_tool_calls(msg.content)
         if not content:
             return []
+
+        if not self._first_token_recorded:
+            record_first_token(self._stream_start_mono)
+            self._first_token_recorded = True
 
         token_event = {
             "type": "token",

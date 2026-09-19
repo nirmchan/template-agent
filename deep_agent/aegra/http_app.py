@@ -19,6 +19,10 @@ from deep_agent.aegra.eval_routes import eval_mgmt_router
 from deep_agent.aegra.eval_routes import router as eval_router
 from deep_agent.aegra.feedback import feedback_router
 from deep_agent.aegra.mcp_routes import router as mcp_router
+from deep_agent.aegra.otel_http_middleware import (
+    StreamMetricsMiddleware,
+    ThreadMetricsMiddleware,
+)
 from deep_agent.aegra.personalization_routes import router as personalization_router
 from deep_agent.aegra.projects_routes import projects_router
 from deep_agent.aegra.security_middleware import (
@@ -190,6 +194,8 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     RequestSizeLimitMiddleware, max_size_bytes=settings.REQUEST_BODY_MAX_SIZE
 )
+app.add_middleware(ThreadMetricsMiddleware)
+app.add_middleware(StreamMetricsMiddleware)
 app.include_router(thread_cleanup_router)
 app.include_router(personalization_router)
 app.include_router(projects_router)

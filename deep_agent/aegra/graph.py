@@ -41,6 +41,7 @@ from typing import Any
 
 from langgraph_sdk.runtime import ServerRuntime
 
+from deep_agent.aegra.otel import record_graph_built
 from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
@@ -436,6 +437,7 @@ async def agent(runtime: ServerRuntime) -> Any:
         return cached
 
     logger.warning("Graph cache MISS — full rebuild")
+    _build_start = time.monotonic()
 
     subagents = load_subagents(tools=mcp_tools)
     backend = get_configured_backend()
@@ -563,6 +565,12 @@ async def agent(runtime: ServerRuntime) -> Any:
             logger.debug("Lifecycle persistence enabled")
     except ImportError:
         pass
+
+    record_graph_built(
+        _build_start,
+        cache_hit=False,
+        mcp_tool_count=len(mcp_tools),
+    )
 
     _graph_cache[cache_key] = compiled
     _graph_cache_ts[cache_key] = time.time()

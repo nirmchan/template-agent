@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from deep_agent.aegra.auth_helpers import authenticated_user_id
+from deep_agent.aegra.otel import record_thread_deleted
 from deep_agent.src.settings import settings
 from deep_agent.utils.pylogger import get_python_logger
 
@@ -138,6 +139,8 @@ async def delete_thread_with_cleanup(
 
         counts = await _delete_pg_data(thread_id, user_id, conn)
         await conn.commit()
+
+    record_thread_deleted(attributes={"thread_id": thread_id})
 
     token_usage_deleted = False
     try:
